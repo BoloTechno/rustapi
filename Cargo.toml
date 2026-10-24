@@ -16,8 +16,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 async-trait = "0.1"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 argon2 = "0.5"
+password-hash = { version = "0.5", features = ["getrandom"] }
 jsonwebtoken = "9.3"
-rand = "0.8"
+dotenvy = "0.15"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

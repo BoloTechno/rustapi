@@ -16,6 +16,7 @@ pub struct User {
 
 impl User {
     pub const MIN_PASSWORD_LENGTH: usize = 8;
+    pub const MAX_NAME_LENGTH: usize = 100;
 
     /// Validasi format email domain
     pub fn validate_email(email: &str) -> Result<String, DomainError> {
@@ -25,9 +26,23 @@ impl User {
         }
 
         let parts: Vec<&str> = trimmed.split('@').collect();
-        if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() || !parts[1].contains('.')
+        if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+            return Err(DomainError::InvalidEmail(trimmed));
+        }
+
+        let domain = parts[1];
+        if domain.starts_with('.')
+            || domain.ends_with('.')
+            || domain.contains("..")
+            || !domain.contains('.')
         {
             return Err(DomainError::InvalidEmail(trimmed));
+        }
+
+        for label in domain.split('.') {
+            if label.is_empty() {
+                return Err(DomainError::InvalidEmail(trimmed));
+            }
         }
 
         Ok(trimmed)
@@ -56,6 +71,17 @@ impl User {
     ) -> Result<Self, DomainError> {
         let validated_email = Self::validate_email(&email)?;
         let trimmed_name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+
+        if let Some(ref n) = trimmed_name {
+            let count = n.chars().count();
+            if count > Self::MAX_NAME_LENGTH {
+                return Err(DomainError::UserNameTooLong {
+                    max: Self::MAX_NAME_LENGTH,
+                    actual: count,
+                });
+            }
+        }
+
         let now = Utc::now();
 
         Ok(Self {
@@ -135,6 +161,10 @@ mod tests {
         assert!(User::validate_email("notanemail").is_err());
         assert!(User::validate_email("@missinguser.com").is_err());
         assert!(User::validate_email("user@nodomain").is_err());
+        assert!(User::validate_email("user@.com").is_err());
+        assert!(User::validate_email("user@com.").is_err());
+        assert!(User::validate_email("user@domain..com").is_err());
+        assert!(User::validate_email("user@.").is_err());
         assert!(User::validate_email("").is_err());
     }
 
@@ -149,5 +179,32 @@ mod tests {
             Err(DomainError::PasswordTooShort { min: 8, actual: 5 })
         ));
         assert!(User::validate_raw_password("validpassword123").is_ok());
+    }
+
+    #[test]
+    fn test_user_name_length_validation() {
+        let long_name = "a".repeat(101);
+        let result = User::new(
+            "test@example.com".into(),
+            Some(long_name),
+            "password123".into(),
+        );
+        assert_eq!(
+            result,
+            Err(DomainError::UserNameTooLong {
+                max: 100,
+                actual: 101
+            })
+        );
+
+        let valid_name = "a".repeat(100);
+        assert!(
+            User::new(
+                "test@example.com".into(),
+                Some(valid_name),
+                "password123".into()
+            )
+            .is_ok()
+        );
     }
 }

@@ -1,6 +1,6 @@
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 use rustapi::{
     AppState, Argon2PasswordHasher, AuthService, CategoryService, JwtTokenService,
@@ -10,12 +10,15 @@ use rustapi::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Inisialisasi logging tracing
+    // 1. Muat konfigurasi .env jika tersedia
+    dotenvy::dotenv().ok();
+
+    // 2. Inisialisasi logging tracing
     tracing_subscriber::fmt::init();
 
     info!("Memulai server Rust Clean Architecture API...");
 
-    // 2. Setup SQLite Database Pool & Auto-migration
+    // 3. Setup SQLite Database Pool & Auto-migration
     let db_url =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://tasks.db?mode=rwc".to_string());
     info!("Menghubungkan ke SQLite database di: {}", db_url);
@@ -41,13 +44,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sqlite_task_repo.init_db().await?;
     info!("Tabel database SQLite berhasil diverifikasi/diinisialisasi");
 
-    // 3. Security Adapters
-    let jwt_secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "rustapi_super_secret_jwt_key_for_development".to_string());
+    // 4. Security Adapters & Validasi JWT_SECRET
+    let jwt_secret = match std::env::var("JWT_SECRET") {
+        Ok(secret) if !secret.trim().is_empty() => {
+            if secret.len() < 32 {
+                warn!(
+                    "JWT_SECRET relatif pendek ({} karakter). Disarankan minimal 32 karakter untuk algoritma HS256.",
+                    secret.len()
+                );
+            }
+            secret
+        }
+        _ => {
+            let is_production = std::env::var("ENVIRONMENT")
+                .or_else(|_| std::env::var("APP_ENV"))
+                .map(|v| v.eq_ignore_ascii_case("production"))
+                .unwrap_or(false);
+
+            if is_production {
+                panic!(
+                    "FATAL: Environment variable JWT_SECRET wajib diatur pada environment produksi!"
+                );
+            }
+
+            warn!(
+                "PERINGATAN: JWT_SECRET tidak diatur di environment. Menggunakan kunci acak dinamis untuk sesi ini."
+            );
+            format!(
+                "{}{}",
+                uuid::Uuid::new_v4().simple(),
+                uuid::Uuid::new_v4().simple()
+            )
+        }
+    };
+
     let token_service = Arc::new(JwtTokenService::new(jwt_secret, 24));
     let password_hasher = Arc::new(Argon2PasswordHasher::new());
 
-    // 4. Dependency Injection: Repositories & Services
+    // 5. Dependency Injection: Repositories & Services
     let user_repository = Arc::new(sqlite_user_repo);
     let category_repository = Arc::new(sqlite_category_repo);
     let task_repository = Arc::new(sqlite_task_repo);
@@ -64,16 +98,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     let task_service = Arc::new(TaskService::new(task_repository, category_repository));
 
-    // 5. Setup Presentation State dan Router Axum
+    // 6. Setup Presentation State dan Router Axum
     let app_state = AppState::new(task_service, category_service, auth_service, token_service);
     let app = create_router(app_state);
 
-    // 6. Binding TCP listener & Menjalankan HTTP Server
-    let addr = "0.0.0.0:3000";
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    // 7. Binding TCP listener & Menjalankan HTTP Server
+    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let addr = format!("{host}:{port}");
+
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("Server aktif dan berjalan di http://{}", addr);
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    info!("Server berhasil dimatikan dengan aman.");
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Gagal menginstal handler sinyal Ctrl+C");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Gagal menginstal handler sinyal SIGTERM")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    info!("Sinyal shutdown diterima. Menghentikan server secara graceful...");
 }

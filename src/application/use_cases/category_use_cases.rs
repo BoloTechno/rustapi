@@ -97,11 +97,17 @@ impl CategoryService {
 
     /// Use case: Menghapus kategori dan melepaskan referensi kategori pada task milik user terkait
     pub async fn delete_category(&self, user_id: Uuid, id: Uuid) -> Result<(), ApplicationError> {
+        // 1. Pastikan kategori ada dan milik user terkait
+        self.get_category_by_id(user_id, id).await?;
+
+        // 2. Lepaskan referensi category_id pada task terlebih dahulu
+        self.task_repository.clear_category_id(user_id, id).await?;
+
+        // 3. Hapus data kategori dari repository
         let deleted = self.repository.delete(user_id, id).await?;
         if !deleted {
             return Err(ApplicationError::CategoryNotFound(id));
         }
-        self.task_repository.clear_category_id(user_id, id).await?;
         Ok(())
     }
 }

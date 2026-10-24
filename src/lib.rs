@@ -14,5 +14,6 @@ pub use infrastructure::{
     SqliteUserRepository,
 };
 pub use presentation::{
-    ApiError, AppState, AuthenticatedUser, PaginatedResponse, PaginationMeta, create_router,
+    ApiError, AppState, AuthenticatedUser, PaginatedResponse, PaginationMeta, RateLimiter,
+    create_router,
 };

@@ -1,7 +1,10 @@
 use chrono::Utc;
-use rustapi::application::ports::CategoryRepository;
-use rustapi::domain::{TaskPriority, TaskStatus};
-use rustapi::{Category, SqliteCategoryRepository, SqliteTaskRepository, TaskFilter, TaskService};
+use rustapi::application::ports::{CategoryRepository, UserRepository};
+use rustapi::domain::{TaskPriority, TaskStatus, User};
+use rustapi::{
+    ApplicationError, Category, SqliteCategoryRepository, SqliteTaskRepository,
+    SqliteUserRepository, TaskFilter, TaskService,
+};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -220,6 +223,74 @@ async fn test_sqlite_pagination_and_search() {
         .unwrap();
     assert_eq!(urgent_res.len(), 2);
     assert_eq!(urgent_total, 2);
+
+    // 5. Search dengan karakter khusus wildcard (% dan _)
+    service
+        .create_task(
+            user_id,
+            "Target 100% Selesai".into(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    service
+        .create_task(
+            user_id,
+            "Target 1000 Selesai".into(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let (percent_res, percent_total) = service
+        .list_tasks(
+            user_id,
+            TaskFilter {
+                search: Some("100%".into()),
+                page: 1,
+                per_page: 10,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(percent_total, 1);
+    assert_eq!(percent_res[0].title(), "Target 100% Selesai");
+
+    // Uji wildcard underscore (_)
+    service
+        .create_task(
+            user_id,
+            "Special_Task_Identifier".into(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let (under_res, under_total) = service
+        .list_tasks(
+            user_id,
+            TaskFilter {
+                search: Some("_Task_".into()),
+                page: 1,
+                per_page: 10,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(under_total, 1);
+    assert_eq!(under_res[0].title(), "Special_Task_Identifier");
 }
 
 #[tokio::test]
@@ -387,4 +458,115 @@ async fn test_legacy_schema_migration_preserves_existing_data() {
         .await
         .unwrap();
     assert_eq!(updated.priority(), TaskPriority::Urgent);
+}
+
+#[tokio::test]
+async fn test_sqlite_user_repository_crud() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    let user_repo = SqliteUserRepository::new(pool);
+    user_repo.init_db().await.unwrap();
+
+    let user = User::new(
+        "budi@example.com".into(),
+        Some("Budi Santoso".into()),
+        "hashed_password_xyz".into(),
+    )
+    .unwrap();
+
+    // 1. Save user
+    user_repo.save(&user).await.unwrap();
+
+    // 2. Find by ID
+    let found_by_id = user_repo.find_by_id(user.id()).await.unwrap().unwrap();
+    assert_eq!(found_by_id.id(), user.id());
+    assert_eq!(found_by_id.email(), "budi@example.com");
+    assert_eq!(found_by_id.name(), Some("Budi Santoso"));
+    assert_eq!(found_by_id.password_hash(), "hashed_password_xyz");
+
+    // 3. Find by Email (case-insensitive check)
+    let found_by_email = user_repo
+        .find_by_email("BUDI@EXAMPLE.COM")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(found_by_email.id(), user.id());
+
+    // 4. Duplicate email rejection -> EmailAlreadyExists
+    let duplicate_user = User::new(
+        "budi@example.com".into(),
+        Some("Another Budi".into()),
+        "hashed_password_abc".into(),
+    )
+    .unwrap();
+    let err = user_repo.save(&duplicate_user).await;
+    assert!(matches!(err, Err(ApplicationError::EmailAlreadyExists(_))));
+}
+
+#[tokio::test]
+async fn test_sqlite_categories_table_rebuild_migration() {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+
+    // 1. Simulasikan skema categories lawas dengan inline UNIQUE constraint pada name
+    sqlx::query(
+        r#"
+        CREATE TABLE categories (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL UNIQUE,
+            color TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Masukkan data kategori lawas
+    let legacy_cat_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO categories (id, name, color, created_at, updated_at)
+        VALUES (?, 'Kerja', '#FF0000', '2026-10-20T10:00:00Z', '2026-10-20T10:00:00Z');
+        "#,
+    )
+    .bind(legacy_cat_id.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // 2. Jalankan init_db() untuk memicu auto table rebuild migration
+    let cat_repo = SqliteCategoryRepository::new(pool);
+    cat_repo.init_db().await.unwrap();
+
+    // 3. Verifikasi data lawas tetap utuh
+    let legacy_user_id = Uuid::nil();
+    let old_cat = cat_repo
+        .find_by_id(legacy_user_id, legacy_cat_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(old_cat.name(), "Kerja");
+    assert_eq!(old_cat.color(), Some("#FF0000"));
+
+    // 4. Verifikasi bahwa User baru sekarang DAPAT membuat kategori dengan nama yang sama ("Kerja") tanpa error UNIQUE
+    let new_user_id = Uuid::new_v4();
+    let new_cat = Category::new(new_user_id, "Kerja".into(), Some("#00FF00".into())).unwrap();
+    cat_repo.save(&new_cat).await.unwrap();
+
+    // Pastikan kedua kategori tersimpan terpisah
+    let fetched_new = cat_repo
+        .find_by_id(new_user_id, new_cat.id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fetched_new.name(), "Kerja");
+    assert_eq!(fetched_new.user_id(), new_user_id);
 }

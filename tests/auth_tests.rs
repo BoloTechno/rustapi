@@ -5,7 +5,8 @@ use axum::{
 use http_body_util::BodyExt;
 use rustapi::{
     AppState, Argon2PasswordHasher, AuthService, CategoryService, InMemoryCategoryRepository,
-    InMemoryTaskRepository, InMemoryUserRepository, JwtTokenService, TaskService, create_router,
+    InMemoryTaskRepository, InMemoryUserRepository, JwtTokenService, RateLimiter, TaskService,
+    create_router,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -120,6 +121,7 @@ async fn test_auth_registration_and_validation() {
 
     // 4. Invalid email format -> 400 Bad Request
     let res_email = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -141,6 +143,31 @@ async fn test_auth_registration_and_validation() {
     let body_email = res_email.into_body().collect().await.unwrap().to_bytes();
     let json_email: Value = serde_json::from_slice(&body_email).unwrap();
     assert_eq!(json_email["error"]["code"], "INVALID_EMAIL");
+
+    // 5. Name too long (> 100 chars) -> 400 Bad Request
+    let res_name = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "email": "validname@example.com",
+                        "password": "strongpassword123",
+                        "name": "a".repeat(101)
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res_name.status(), StatusCode::BAD_REQUEST);
+    let body_name = res_name.into_body().collect().await.unwrap().to_bytes();
+    let json_name: Value = serde_json::from_slice(&body_name).unwrap();
+    assert_eq!(json_name["error"]["code"], "USER_NAME_TOO_LONG");
 }
 
 #[tokio::test]
@@ -460,4 +487,90 @@ async fn test_multi_tenancy_data_isolation() {
         .await
         .unwrap();
     assert_eq!(res_cat_bob.status(), StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn test_auth_rate_limiting() {
+    let task_repo = Arc::new(InMemoryTaskRepository::new());
+    let cat_repo = Arc::new(InMemoryCategoryRepository::new());
+    let user_repo = Arc::new(InMemoryUserRepository::new());
+    let password_hasher = Arc::new(Argon2PasswordHasher::new());
+    let token_service = Arc::new(JwtTokenService::new("test_secret".to_string(), 24));
+    let auth_service = Arc::new(AuthService::new(
+        user_repo,
+        password_hasher,
+        token_service.clone(),
+    ));
+    let task_service = Arc::new(TaskService::new(task_repo.clone(), cat_repo.clone()));
+    let cat_service = Arc::new(CategoryService::new(cat_repo, task_repo));
+
+    // Atur rate limiter dengan kapasitas 3 request per jendela waktu
+    let state = AppState::new(task_service, cat_service, auth_service, token_service)
+        .with_rate_limiter(RateLimiter::new(3, std::time::Duration::from_secs(60)));
+    let app = create_router(state);
+
+    let client_ip = "192.168.1.100";
+
+    // Kirim 3 request beruntun dari IP yang sama (semua harus diizinkan lewat ke handler)
+    for _ in 0..3 {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("X-Forwarded-For", client_ip)
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(
+                        json!({ "email": "any@example.com", "password": "wrong" }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Handler menolak kredensial, tapi BUKAN 429
+        assert_ne!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    // Request ke-4 dari IP yang sama harus DITOLAK oleh rate limiter (HTTP 429)
+    let res_blocked = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("X-Forwarded-For", client_ip)
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({ "email": "any@example.com", "password": "wrong" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res_blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = res_blocked.into_body().collect().await.unwrap().to_bytes();
+    let json_res: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json_res["success"], false);
+    assert_eq!(json_res["error"]["code"], "TOO_MANY_REQUESTS");
+
+    // Request dari IP BERBEDA tidak terblokir
+    let res_other_ip = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("X-Forwarded-For", "192.168.1.101")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({ "email": "any@example.com", "password": "wrong" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_ne!(res_other_ip.status(), StatusCode::TOO_MANY_REQUESTS);
 }

@@ -11,7 +11,7 @@ Dokumen ini berfungsi sebagai peta jalan (*roadmap*) dan daftar pelacak tugas (*
 ## 📊 Status Ringkasan Proyek
 
 - **Fase Selesai**: 5 dari 9 Fase
-- **Status Build & Test**: 35/35 Tests Lulus (100%), 0 Clippy Warnings, Formatting Konsisten
+- **Status Build & Test**: 37/37 Tests Lulus (100%), 0 Clippy Warnings, Formatting Konsisten
 - **Fase Aktif Saat Ini**: **Fase 6: Production Web Middleware & Observability**
 
 ---
@@ -95,7 +95,7 @@ Dokumen ini berfungsi sebagai peta jalan (*roadmap*) dan daftar pelacak tugas (*
 - [ ] **6.1 CORS Middleware**: Konfigurasi `tower-http::cors` agar REST API siap diakses dari browser frontend (React, Next.js, Vue, mobile).
 - [ ] **6.2 Request Tracing & Latency Logger**: Integrasi `tower-http::trace` untuk mencatat durasi eksekusi dan latency setiap request HTTP.
 - [ ] **6.3 Request Timeout Layer**: Mencegah request menggantung dengan timeout middleware (misal 30 detik).
-- [ ] **6.4 Graceful Shutdown**: Menangani sinyal `SIGINT` dan `SIGTERM` di `src/main.rs` agar koneksi database ditutup dengan aman saat server dihentikan.
+- [x] **6.4 Graceful Shutdown**: Menangani sinyal `SIGINT` dan `SIGTERM` di `src/main.rs` agar koneksi database ditutup dengan aman saat server dihentikan.
 
 ---
 

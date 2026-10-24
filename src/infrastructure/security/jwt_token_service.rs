@@ -11,8 +11,8 @@ use crate::application::ports::TokenService;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,
-    pub exp: usize,
-    pub iat: usize,
+    pub exp: i64,
+    pub iat: i64,
 }
 
 #[derive(Clone)]
@@ -33,12 +33,12 @@ impl JwtTokenService {
 impl TokenService for JwtTokenService {
     fn generate_token(&self, user_id: Uuid) -> Result<String, ApplicationError> {
         let now = Utc::now();
-        let iat = now.timestamp() as usize;
+        let iat = now.timestamp();
         let exp = (now
             + chrono::Duration::from_std(self.duration).map_err(|e| {
                 ApplicationError::InternalError(format!("Duration conversion error: {e}"))
             })?)
-        .timestamp() as usize;
+        .timestamp();
 
         let claims = Claims {
             sub: user_id.to_string(),

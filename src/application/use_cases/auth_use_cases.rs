@@ -43,7 +43,7 @@ impl AuthService {
             return Err(ApplicationError::EmailAlreadyExists(validated_email));
         }
 
-        let password_hash = self.password_hasher.hash_password(&raw_password)?;
+        let password_hash = self.password_hasher.hash_password(&raw_password).await?;
         let user = User::new(validated_email, name, password_hash)?;
         self.user_repository.save(&user).await?;
 
@@ -68,7 +68,8 @@ impl AuthService {
 
         let is_valid = self
             .password_hasher
-            .verify_password(&raw_password, user.password_hash())?;
+            .verify_password(&raw_password, user.password_hash())
+            .await?;
 
         if !is_valid {
             return Err(ApplicationError::InvalidCredentials);

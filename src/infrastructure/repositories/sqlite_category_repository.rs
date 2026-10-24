@@ -65,6 +65,81 @@ impl SqliteCategoryRepository {
         .await
         .map_err(|e| ApplicationError::Repository(e.to_string()))?;
 
+        // Periksa apakah tabel lawas memiliki auto-index constraint unik inline (origin = 'u' dari `name TEXT NOT NULL UNIQUE`)
+        let indexes = sqlx::query("PRAGMA index_list('categories');")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+
+        let has_legacy_unique_constraint = indexes
+            .iter()
+            .any(|idx| idx.try_get::<String, _>("origin").unwrap_or_default() == "u");
+
+        if has_legacy_unique_constraint {
+            let mut conn = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+
+            sqlx::query("PRAGMA foreign_keys = OFF;")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+
+            sqlx::query("BEGIN TRANSACTION;")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+
+            sqlx::query(
+                r#"
+                CREATE TABLE categories_new (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    color TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                "#,
+            )
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO categories_new (id, user_id, name, color, created_at, updated_at)
+                SELECT id, COALESCE(user_id, '00000000-0000-0000-0000-000000000000'), name, color, created_at, updated_at
+                FROM categories;
+                "#,
+            )
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+
+            sqlx::query("DROP TABLE categories;")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+
+            sqlx::query("ALTER TABLE categories_new RENAME TO categories;")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+
+            sqlx::query("COMMIT;")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+
+            sqlx::query("PRAGMA foreign_keys = ON;")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+        }
+
         // Hapus index unik global lama jika ada, ganti dengan index unik per user
         let _ = sqlx::query("DROP INDEX IF EXISTS idx_categories_name;")
             .execute(&self.pool)

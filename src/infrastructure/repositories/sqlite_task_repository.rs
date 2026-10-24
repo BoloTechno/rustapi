@@ -219,8 +219,13 @@ impl TaskRepository for SqliteTaskRepository {
         }
 
         if let Some(ref search) = filter.search {
-            where_clauses.push("(title LIKE ? OR description LIKE ?)".to_string());
-            let pattern = format!("%{}%", search);
+            let escaped = search
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            where_clauses
+                .push("(title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')".to_string());
+            let pattern = format!("%{}%", escaped);
             binds.push(pattern.clone());
             binds.push(pattern);
         }

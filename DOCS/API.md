@@ -57,6 +57,7 @@ Mendaftarkan akun pengguna baru dan langsung mengembalikan JWT token.
 
 - **Method / URL:** `POST /api/v1/auth/register`
 - **Headers:** `Content-Type: application/json`
+- **Rate Limit:** Maksimal 10 request per menit per IP address. Request berlebih akan menghasilkan `429 Too Many Requests`.
 - **Request Body:**
   ```json
   {
@@ -68,7 +69,8 @@ Mendaftarkan akun pengguna baru dan langsung mengembalikan JWT token.
   *Keterangan Atribut:*
   - `email` *(wajib)*: Format email valid (case-insensitive & unik global).
   - `password` *(wajib)*: Minimal 8 karakter.
-  - `name` *(opsional)*: Nama lengkap pengguna.
+  - `name` *(opsional)*: Nama lengkap pengguna (maksimal 100 karakter).
+- **Rate Limit:** Maksimal 10 request per menit per IP address. Request berlebih akan menghasilkan `429 Too Many Requests`.
 - **Status Code:** `201 Created`
 - **Response:**
   ```json
@@ -93,6 +95,7 @@ Melakukan autentikasi menggunakan email dan password untuk mendapatkan JWT token
 
 - **Method / URL:** `POST /api/v1/auth/login`
 - **Headers:** `Content-Type: application/json`
+- **Rate Limit:** Maksimal 10 request per menit per IP address. Request berlebih akan menghasilkan `429 Too Many Requests`.
 - **Request Body:**
   ```json
   {
@@ -314,6 +317,7 @@ Membuat kategori untuk pengelompokan task.
 
 - **Method / URL:** `POST /api/v1/categories`
 - **Headers:** `Content-Type: application/json`
+- **Rate Limit:** Maksimal 10 request per menit per IP address. Request berlebih akan menghasilkan `429 Too Many Requests`.
 - **Request Body:**
   ```json
   {
@@ -404,6 +408,8 @@ Menghapus kategori. Task yang terhubung ke kategori ini **tidak akan dihapus**, 
 | `CATEGORY_NOT_FOUND` | `404 Not Found` | ID kategori tidak ditemukan. |
 | `DUPLICATE_CATEGORY_NAME` | `409 Conflict` | Nama kategori sudah digunakan oleh kategori lain. |
 | `INVALID_STATE_TRANSITION` | `422 Unprocessable Entity` | Transisi status tidak sah menurut aturan domain. |
+| `USER_NAME_TOO_LONG` | `400 Bad Request` | Nama pengguna melebihi batas 100 karakter. |
+| `TOO_MANY_REQUESTS` | `429 Too Many Requests` | Melebihi kuota request rate limiter (maksimal 10 request / menit pada auth). |
 | `INTERNAL_SERVER_ERROR` | `500 Internal Server Error` | Terjadi kegagalan koneksi database atau sistem internal. |
 
 ---

@@ -22,4 +22,6 @@ pub enum DomainError {
     EmptyPassword,
     #[error("Password must be at least {min} characters (got {actual})")]
     PasswordTooShort { min: usize, actual: usize },
+    #[error("User name cannot exceed {max} characters (got {actual})")]
+    UserNameTooLong { max: usize, actual: usize },
 }

@@ -7,10 +7,17 @@ use crate::presentation::handlers;
 use crate::presentation::state::AppState;
 
 pub fn create_router(state: AppState) -> Router {
+    let auth_routes = Router::new()
+        .route("/register", post(handlers::register))
+        .route("/login", post(handlers::login))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::presentation::middleware::rate_limit_auth,
+        ));
+
     let api_v1 = Router::new()
         .route("/health", get(handlers::health_check))
-        .route("/auth/register", post(handlers::register))
-        .route("/auth/login", post(handlers::login))
+        .nest("/auth", auth_routes)
         .route("/auth/me", get(handlers::get_me))
         .route(
             "/tasks",
