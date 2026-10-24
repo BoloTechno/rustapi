@@ -16,4 +16,10 @@ pub enum DomainError {
     CategoryNameTooLong { max: usize, actual: usize },
     #[error("Category color cannot exceed {max} characters (got {actual})")]
     CategoryColorTooLong { max: usize, actual: usize },
+    #[error("Invalid email address: '{0}'")]
+    InvalidEmail(String),
+    #[error("Password cannot be empty")]
+    EmptyPassword,
+    #[error("Password must be at least {min} characters (got {actual})")]
+    PasswordTooShort { min: usize, actual: usize },
 }

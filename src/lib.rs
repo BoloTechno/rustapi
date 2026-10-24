@@ -3,10 +3,16 @@ pub mod domain;
 pub mod infrastructure;
 pub mod presentation;
 
-pub use application::{ApplicationError, CategoryService, TaskFilter, TaskService};
-pub use domain::{Category, TaskPriority};
-pub use infrastructure::{
-    InMemoryCategoryRepository, InMemoryTaskRepository, SqliteCategoryRepository,
-    SqliteTaskRepository,
+pub use application::{
+    ApplicationError, AuthService, CategoryRepository, CategoryService, PasswordHasher, TaskFilter,
+    TaskRepository, TaskService, TokenService, UserRepository,
 };
-pub use presentation::{AppState, PaginatedResponse, PaginationMeta, create_router};
+pub use domain::{Category, DomainError, Task, TaskPriority, TaskStatus, User};
+pub use infrastructure::{
+    Argon2PasswordHasher, InMemoryCategoryRepository, InMemoryTaskRepository,
+    InMemoryUserRepository, JwtTokenService, SqliteCategoryRepository, SqliteTaskRepository,
+    SqliteUserRepository,
+};
+pub use presentation::{
+    ApiError, AppState, AuthenticatedUser, PaginatedResponse, PaginationMeta, create_router,
+};

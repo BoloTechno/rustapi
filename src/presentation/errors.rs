@@ -53,6 +53,19 @@ impl IntoResponse for ApiError {
                 "CATEGORY_COLOR_TOO_LONG",
                 self.0.to_string(),
             ),
+            ApplicationError::Domain(DomainError::InvalidEmail(_)) => {
+                (StatusCode::BAD_REQUEST, "INVALID_EMAIL", self.0.to_string())
+            }
+            ApplicationError::Domain(DomainError::EmptyPassword) => (
+                StatusCode::BAD_REQUEST,
+                "EMPTY_PASSWORD",
+                self.0.to_string(),
+            ),
+            ApplicationError::Domain(DomainError::PasswordTooShort { .. }) => (
+                StatusCode::BAD_REQUEST,
+                "PASSWORD_TOO_SHORT",
+                self.0.to_string(),
+            ),
             ApplicationError::TaskNotFound(_) => {
                 (StatusCode::NOT_FOUND, "TASK_NOT_FOUND", self.0.to_string())
             }
@@ -69,7 +82,20 @@ impl IntoResponse for ApiError {
                 "DUPLICATE_CATEGORY_NAME",
                 self.0.to_string(),
             ),
-            ApplicationError::Repository(_) => (
+            ApplicationError::EmailAlreadyExists(_) => (
+                StatusCode::CONFLICT,
+                "EMAIL_ALREADY_EXISTS",
+                self.0.to_string(),
+            ),
+            ApplicationError::InvalidCredentials => (
+                StatusCode::UNAUTHORIZED,
+                "INVALID_CREDENTIALS",
+                "Email atau password salah".to_string(),
+            ),
+            ApplicationError::Unauthorized(_) => {
+                (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", self.0.to_string())
+            }
+            ApplicationError::InternalError(_) | ApplicationError::Repository(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_SERVER_ERROR",
                 "Terjadi kesalahan internal server".to_string(),

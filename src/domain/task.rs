@@ -76,6 +76,7 @@ impl std::str::FromStr for TaskPriority {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     id: Uuid,
+    user_id: Uuid,
     title: String,
     description: Option<String>,
     status: TaskStatus,
@@ -91,6 +92,7 @@ impl Task {
 
     /// Buat Task baru dengan validasi domain.
     pub fn new(
+        user_id: Uuid,
         title: String,
         description: Option<String>,
         priority: Option<TaskPriority>,
@@ -112,6 +114,7 @@ impl Task {
         let now = Utc::now();
         Ok(Self {
             id: Uuid::new_v4(),
+            user_id,
             title: trimmed_title.to_string(),
             description: description
                 .map(|d| d.trim().to_string())
@@ -129,6 +132,7 @@ impl Task {
     #[allow(clippy::too_many_arguments)]
     pub fn reconstitute(
         id: Uuid,
+        user_id: Uuid,
         title: String,
         description: Option<String>,
         status: TaskStatus,
@@ -140,6 +144,7 @@ impl Task {
     ) -> Self {
         Self {
             id,
+            user_id,
             title,
             description,
             status,
@@ -154,6 +159,10 @@ impl Task {
     // Getters untuk enkapsulasi domain
     pub fn id(&self) -> Uuid {
         self.id
+    }
+
+    pub fn user_id(&self) -> Uuid {
+        self.user_id
     }
 
     pub fn title(&self) -> &str {
@@ -263,7 +272,9 @@ mod tests {
 
     #[test]
     fn test_create_valid_task() {
+        let user_id = Uuid::new_v4();
         let task = Task::new(
+            user_id,
             "Belajar Rust".into(),
             Some("Clean Architecture".into()),
             None,
@@ -271,6 +282,7 @@ mod tests {
             None,
         )
         .unwrap();
+        assert_eq!(task.user_id(), user_id);
         assert_eq!(task.title(), "Belajar Rust");
         assert_eq!(task.description(), Some("Clean Architecture"));
         assert_eq!(task.status(), TaskStatus::Pending);
@@ -281,9 +293,11 @@ mod tests {
 
     #[test]
     fn test_create_task_with_custom_priority_and_due_date_and_category() {
+        let user_id = Uuid::new_v4();
         let due = Utc::now();
         let cat_id = Uuid::new_v4();
         let task = Task::new(
+            user_id,
             "Tugas Urgent".into(),
             None,
             Some(TaskPriority::Urgent),
@@ -291,6 +305,7 @@ mod tests {
             Some(cat_id),
         )
         .unwrap();
+        assert_eq!(task.user_id(), user_id);
         assert_eq!(task.priority(), TaskPriority::Urgent);
         assert_eq!(task.due_date(), Some(due));
         assert_eq!(task.category_id(), Some(cat_id));
@@ -298,20 +313,20 @@ mod tests {
 
     #[test]
     fn test_create_task_with_empty_title() {
-        let res = Task::new("   ".into(), None, None, None, None);
+        let user_id = Uuid::new_v4();
+        let res = Task::new(user_id, "   ".into(), None, None, None, None);
         assert_eq!(res, Err(DomainError::EmptyTitle));
     }
 
     #[test]
     fn test_create_task_with_unicode_emojis() {
-        // Emojis take 4 bytes each in UTF-8. 50 emojis = 200 bytes, but only 50 characters!
+        let user_id = Uuid::new_v4();
         let emoji_title = "🦀".repeat(50);
-        let task = Task::new(emoji_title.clone(), None, None, None, None).unwrap();
+        let task = Task::new(user_id, emoji_title.clone(), None, None, None, None).unwrap();
         assert_eq!(task.title(), emoji_title);
 
-        // 121 emojis should fail based on character count
         let long_emoji_title = "🦀".repeat(121);
-        let res = Task::new(long_emoji_title, None, None, None, None);
+        let res = Task::new(user_id, long_emoji_title, None, None, None, None);
         assert_eq!(
             res,
             Err(DomainError::TitleTooLong {
@@ -323,6 +338,7 @@ mod tests {
 
     #[test]
     fn test_priority_parsing_and_mutation() {
+        let user_id = Uuid::new_v4();
         assert_eq!("low".parse::<TaskPriority>().unwrap(), TaskPriority::Low);
         assert_eq!(
             "urgent".parse::<TaskPriority>().unwrap(),
@@ -330,7 +346,7 @@ mod tests {
         );
         assert!("invalid".parse::<TaskPriority>().is_err());
 
-        let mut task = Task::new("Uji Mutasi".into(), None, None, None, None).unwrap();
+        let mut task = Task::new(user_id, "Uji Mutasi".into(), None, None, None, None).unwrap();
         assert_eq!(task.priority(), TaskPriority::Medium);
         task.update_priority(TaskPriority::High);
         assert_eq!(task.priority(), TaskPriority::High);
@@ -338,7 +354,8 @@ mod tests {
 
     #[test]
     fn test_state_transitions_idempotent() {
-        let mut task = Task::new("Deploy App".into(), None, None, None, None).unwrap();
+        let user_id = Uuid::new_v4();
+        let mut task = Task::new(user_id, "Deploy App".into(), None, None, None, None).unwrap();
         assert_eq!(task.status(), TaskStatus::Pending);
 
         // 1. Mark completed

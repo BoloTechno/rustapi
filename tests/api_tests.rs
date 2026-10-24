@@ -4,25 +4,41 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use rustapi::{
-    AppState, CategoryService, InMemoryCategoryRepository, InMemoryTaskRepository, TaskService,
+    AppState, Argon2PasswordHasher, AuthService, CategoryService, InMemoryCategoryRepository,
+    InMemoryTaskRepository, InMemoryUserRepository, JwtTokenService, TaskService, TokenService,
     create_router,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 
-fn setup_test_app() -> axum::Router {
+fn setup_test_app() -> (axum::Router, String) {
     let task_repo = Arc::new(InMemoryTaskRepository::new());
     let cat_repo = Arc::new(InMemoryCategoryRepository::new());
+    let user_repo = Arc::new(InMemoryUserRepository::new());
+    let password_hasher = Arc::new(Argon2PasswordHasher::new());
+    let token_service = Arc::new(JwtTokenService::new("test_secret".to_string(), 24));
+    let auth_service = Arc::new(AuthService::new(
+        user_repo,
+        password_hasher,
+        token_service.clone(),
+    ));
     let task_service = Arc::new(TaskService::new(task_repo.clone(), cat_repo.clone()));
     let cat_service = Arc::new(CategoryService::new(cat_repo, task_repo));
-    let state = AppState::new(task_service, cat_service);
-    create_router(state)
+    let state = AppState::new(
+        task_service,
+        cat_service,
+        auth_service,
+        token_service.clone(),
+    );
+    let token = token_service.generate_token(uuid::Uuid::new_v4()).unwrap();
+    (create_router(state), token)
 }
 
 #[tokio::test]
 async fn test_full_api_workflow() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth = format!("Bearer {token}");
 
     // 1. Test POST /api/v1/tasks (Create Valid Task)
     let response = app
@@ -31,6 +47,7 @@ async fn test_full_api_workflow() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -63,6 +80,7 @@ async fn test_full_api_workflow() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(json!({ "title": "   " }).to_string()))
                 .unwrap(),
@@ -78,7 +96,8 @@ async fn test_full_api_workflow() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/api/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{task_id}"))
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -93,7 +112,8 @@ async fn test_full_api_workflow() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/api/v1/tasks/{}/complete", task_id))
+                .uri(format!("/api/v1/tasks/{task_id}/complete"))
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -111,7 +131,8 @@ async fn test_full_api_workflow() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/api/v1/tasks/{}/complete", task_id))
+                .uri(format!("/api/v1/tasks/{task_id}/complete"))
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -126,7 +147,8 @@ async fn test_full_api_workflow() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/api/v1/tasks/{}/reopen", task_id))
+                .uri(format!("/api/v1/tasks/{task_id}/reopen"))
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -144,7 +166,8 @@ async fn test_full_api_workflow() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/api/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{task_id}"))
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -158,7 +181,8 @@ async fn test_full_api_workflow() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/api/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{task_id}"))
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -170,7 +194,8 @@ async fn test_full_api_workflow() {
 
 #[tokio::test]
 async fn test_unicode_title_handling() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth = format!("Bearer {token}");
 
     // Judul dengan emoji (4 byte per emoji di UTF-8)
     let response = app
@@ -178,6 +203,7 @@ async fn test_unicode_title_handling() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -202,7 +228,8 @@ async fn test_unicode_title_handling() {
 
 #[tokio::test]
 async fn test_update_task_fields() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth = format!("Bearer {token}");
 
     // 1. Create task
     let response = app
@@ -211,6 +238,7 @@ async fn test_update_task_fields() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -235,7 +263,8 @@ async fn test_update_task_fields() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/api/v1/tasks/{}", task_id))
+                .uri(format!("/api/v1/tasks/{task_id}"))
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -260,7 +289,8 @@ async fn test_update_task_fields() {
 
 #[tokio::test]
 async fn test_filter_tasks_by_status() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth = format!("Bearer {token}");
 
     // Create Task 1 (Pending)
     app.clone()
@@ -268,6 +298,7 @@ async fn test_filter_tasks_by_status() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(json!({ "title": "Task 1" }).to_string()))
                 .unwrap(),
@@ -282,6 +313,7 @@ async fn test_filter_tasks_by_status() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(json!({ "title": "Task 2" }).to_string()))
                 .unwrap(),
@@ -297,7 +329,8 @@ async fn test_filter_tasks_by_status() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/api/v1/tasks/{}/complete", task2_id))
+                .uri(format!("/api/v1/tasks/{task2_id}/complete"))
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -311,6 +344,7 @@ async fn test_filter_tasks_by_status() {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/tasks?status=completed")
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -335,6 +369,7 @@ async fn test_filter_tasks_by_status() {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/tasks?status=pending")
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -351,9 +386,9 @@ async fn test_filter_tasks_by_status() {
 
 #[tokio::test]
 async fn test_health_check_endpoints() {
-    let app = setup_test_app();
+    let (app, _) = setup_test_app();
 
-    // 1. GET /health
+    // 1. GET /health (public, no auth required)
     let res = app
         .clone()
         .oneshot(
@@ -371,7 +406,7 @@ async fn test_health_check_endpoints() {
     assert_eq!(json_res["status"], "ok");
     assert_eq!(json_res["version"], env!("CARGO_PKG_VERSION"));
 
-    // 2. GET /api/v1/health
+    // 2. GET /api/v1/health (public, no auth required)
     let res2 = app
         .oneshot(
             Request::builder()
@@ -387,7 +422,8 @@ async fn test_health_check_endpoints() {
 
 #[tokio::test]
 async fn test_pagination_and_keyword_search() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth = format!("Bearer {token}");
 
     for i in 1..=7 {
         app.clone()
@@ -395,6 +431,7 @@ async fn test_pagination_and_keyword_search() {
                 Request::builder()
                     .method("POST")
                     .uri("/api/v1/tasks")
+                    .header("Authorization", &auth)
                     .header("Content-Type", "application/json")
                     .body(Body::from(
                         json!({
@@ -417,6 +454,7 @@ async fn test_pagination_and_keyword_search() {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/tasks?page=1&per_page=3")
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -438,6 +476,7 @@ async fn test_pagination_and_keyword_search() {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/tasks?search=nomor%205")
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -455,6 +494,7 @@ async fn test_pagination_and_keyword_search() {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/tasks?priority=urgent")
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -469,7 +509,8 @@ async fn test_pagination_and_keyword_search() {
 
 #[tokio::test]
 async fn test_unique_task_title_conflict() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth = format!("Bearer {token}");
 
     // 1. Buat task pertama
     let res1 = app
@@ -478,6 +519,7 @@ async fn test_unique_task_title_conflict() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -498,6 +540,7 @@ async fn test_unique_task_title_conflict() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -522,6 +565,7 @@ async fn test_unique_task_title_conflict() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -542,7 +586,8 @@ async fn test_unique_task_title_conflict() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/api/v1/tasks/{}", task3_id))
+                .uri(format!("/api/v1/tasks/{task3_id}"))
+                .header("Authorization", &auth)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -559,13 +604,15 @@ async fn test_unique_task_title_conflict() {
 
 #[tokio::test]
 async fn test_huge_page_number_does_not_overflow() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth = format!("Bearer {token}");
 
     let res = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/tasks?page=18446744073709551615&per_page=100")
+                .header("Authorization", &auth)
                 .body(Body::empty())
                 .unwrap(),
         )

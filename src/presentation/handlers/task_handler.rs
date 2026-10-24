@@ -10,16 +10,19 @@ use crate::presentation::dto::{
     ApiResponse, CreateTaskRequest, PaginatedResponse, TaskQuery, TaskResponse, UpdateTaskRequest,
 };
 use crate::presentation::errors::ApiError;
+use crate::presentation::extractors::AuthenticatedUser;
 use crate::presentation::state::AppState;
 
 /// POST /api/v1/tasks - Membuat task baru
 pub async fn create_task(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Json(payload): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<ApiResponse<TaskResponse>>), ApiError> {
     let task = state
         .task_service
         .create_task(
+            user_id,
             payload.title,
             payload.description,
             payload.priority,
@@ -38,6 +41,7 @@ pub async fn create_task(
 /// GET /api/v1/tasks - Mendapatkan daftar task dengan opsi filter, search, dan pagination
 pub async fn list_tasks(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Query(query): Query<TaskQuery>,
 ) -> Result<Json<PaginatedResponse<TaskResponse>>, ApiError> {
     let page = query.page.unwrap_or(1).clamp(1, 1_000_000);
@@ -54,7 +58,7 @@ pub async fn list_tasks(
 
     let (tasks, total) = state
         .task_service
-        .list_tasks(filter)
+        .list_tasks(user_id, filter)
         .await
         .map_err(ApiError)?;
 
@@ -70,11 +74,12 @@ pub async fn list_tasks(
 /// GET /api/v1/tasks/:id - Mengambil detail satu task berdasarkan ID
 pub async fn get_task(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<TaskResponse>>, ApiError> {
     let task = state
         .task_service
-        .get_task_by_id(id)
+        .get_task_by_id(user_id, id)
         .await
         .map_err(ApiError)?;
 
@@ -84,6 +89,7 @@ pub async fn get_task(
 /// PATCH /api/v1/tasks/:id - Memperbarui judul, deskripsi, prioritas, atau due date task
 pub async fn update_task(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateTaskRequest>,
 ) -> Result<Json<ApiResponse<TaskResponse>>, ApiError> {
@@ -102,6 +108,7 @@ pub async fn update_task(
     let task = state
         .task_service
         .update_task(
+            user_id,
             id,
             payload.title,
             payload.description,
@@ -118,11 +125,12 @@ pub async fn update_task(
 /// PATCH /api/v1/tasks/:id/complete - Menyelesaikan task
 pub async fn complete_task(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<TaskResponse>>, ApiError> {
     let task = state
         .task_service
-        .complete_task(id)
+        .complete_task(user_id, id)
         .await
         .map_err(ApiError)?;
 
@@ -132,9 +140,14 @@ pub async fn complete_task(
 /// PATCH /api/v1/tasks/:id/reopen - Membuka kembali task yang selesai (status -> Pending)
 pub async fn reopen_task(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<TaskResponse>>, ApiError> {
-    let task = state.task_service.reopen_task(id).await.map_err(ApiError)?;
+    let task = state
+        .task_service
+        .reopen_task(user_id, id)
+        .await
+        .map_err(ApiError)?;
 
     Ok(Json(ApiResponse::success(TaskResponse::from(task))))
 }
@@ -142,8 +155,13 @@ pub async fn reopen_task(
 /// DELETE /api/v1/tasks/:id - Menghapus task berdasarkan ID
 pub async fn delete_task(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    state.task_service.delete_task(id).await.map_err(ApiError)?;
+    state
+        .task_service
+        .delete_task(user_id, id)
+        .await
+        .map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }

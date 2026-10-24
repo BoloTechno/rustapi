@@ -9,16 +9,18 @@ use crate::presentation::dto::{
     ApiResponse, CategoryResponse, CreateCategoryRequest, UpdateCategoryRequest,
 };
 use crate::presentation::errors::ApiError;
+use crate::presentation::extractors::AuthenticatedUser;
 use crate::presentation::state::AppState;
 
 /// POST /api/v1/categories - Membuat kategori baru
 pub async fn create_category(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Json(payload): Json<CreateCategoryRequest>,
 ) -> Result<(StatusCode, Json<ApiResponse<CategoryResponse>>), ApiError> {
     let category = state
         .category_service
-        .create_category(payload.name, payload.color)
+        .create_category(user_id, payload.name, payload.color)
         .await
         .map_err(ApiError)?;
 
@@ -31,10 +33,11 @@ pub async fn create_category(
 /// GET /api/v1/categories - Mengambil seluruh daftar kategori
 pub async fn list_categories(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Json<ApiResponse<Vec<CategoryResponse>>>, ApiError> {
     let categories = state
         .category_service
-        .list_categories()
+        .list_categories(user_id)
         .await
         .map_err(ApiError)?;
 
@@ -46,11 +49,12 @@ pub async fn list_categories(
 /// GET /api/v1/categories/:id - Mengambil detail satu kategori
 pub async fn get_category(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<CategoryResponse>>, ApiError> {
     let category = state
         .category_service
-        .get_category_by_id(id)
+        .get_category_by_id(user_id, id)
         .await
         .map_err(ApiError)?;
 
@@ -60,6 +64,7 @@ pub async fn get_category(
 /// PATCH /api/v1/categories/:id - Memperbarui nama atau kode warna kategori
 pub async fn update_category(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateCategoryRequest>,
 ) -> Result<Json<ApiResponse<CategoryResponse>>, ApiError> {
@@ -71,7 +76,7 @@ pub async fn update_category(
 
     let category = state
         .category_service
-        .update_category(id, payload.name, color_update)
+        .update_category(user_id, id, payload.name, color_update)
         .await
         .map_err(ApiError)?;
 
@@ -81,11 +86,12 @@ pub async fn update_category(
 /// DELETE /api/v1/categories/:id - Menghapus kategori
 pub async fn delete_category(
     State(state): State<AppState>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     state
         .category_service
-        .delete_category(id)
+        .delete_category(user_id, id)
         .await
         .map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)

@@ -3,7 +3,8 @@ use std::sync::Arc;
 use tracing::info;
 
 use rustapi::{
-    AppState, CategoryService, SqliteCategoryRepository, SqliteTaskRepository, TaskService,
+    AppState, Argon2PasswordHasher, AuthService, CategoryService, JwtTokenService,
+    SqliteCategoryRepository, SqliteTaskRepository, SqliteUserRepository, TaskService,
     create_router,
 };
 
@@ -30,6 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect_with(connection_options)
         .await?;
 
+    let sqlite_user_repo = SqliteUserRepository::new(pool.clone());
+    sqlite_user_repo.init_db().await?;
+
     let sqlite_category_repo = SqliteCategoryRepository::new(pool.clone());
     sqlite_category_repo.init_db().await?;
 
@@ -37,9 +41,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sqlite_task_repo.init_db().await?;
     info!("Tabel database SQLite berhasil diverifikasi/diinisialisasi");
 
-    // 3. Dependency Injection:
+    // 3. Security Adapters
+    let jwt_secret = std::env::var("JWT_SECRET")
+        .unwrap_or_else(|_| "rustapi_super_secret_jwt_key_for_development".to_string());
+    let token_service = Arc::new(JwtTokenService::new(jwt_secret, 24));
+    let password_hasher = Arc::new(Argon2PasswordHasher::new());
+
+    // 4. Dependency Injection: Repositories & Services
+    let user_repository = Arc::new(sqlite_user_repo);
     let category_repository = Arc::new(sqlite_category_repo);
     let task_repository = Arc::new(sqlite_task_repo);
+
+    let auth_service = Arc::new(AuthService::new(
+        user_repository,
+        password_hasher,
+        token_service.clone(),
+    ));
 
     let category_service = Arc::new(CategoryService::new(
         category_repository.clone(),
@@ -47,11 +64,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     let task_service = Arc::new(TaskService::new(task_repository, category_repository));
 
-    // 4. Setup Presentation State dan Router Axum
-    let app_state = AppState::new(task_service, category_service);
+    // 5. Setup Presentation State dan Router Axum
+    let app_state = AppState::new(task_service, category_service, auth_service, token_service);
     let app = create_router(app_state);
 
-    // 5. Binding TCP listener & Menjalankan HTTP Server
+    // 6. Binding TCP listener & Menjalankan HTTP Server
     let addr = "0.0.0.0:3000";
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("Server aktif dan berjalan di http://{}", addr);

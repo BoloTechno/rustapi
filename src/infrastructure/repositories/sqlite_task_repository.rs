@@ -22,6 +22,7 @@ impl SqliteTaskRepository {
             r#"
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT,
                 title TEXT NOT NULL,
                 description TEXT,
                 status TEXT NOT NULL,
@@ -43,6 +44,7 @@ impl SqliteTaskRepository {
             .await
             .map_err(|e| ApplicationError::Repository(e.to_string()))?;
 
+        let mut has_user_id = false;
         let mut has_priority = false;
         let mut has_due_date = false;
         let mut has_category_id = false;
@@ -50,6 +52,9 @@ impl SqliteTaskRepository {
             let col_name: String = row
                 .try_get("name")
                 .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+            if col_name == "user_id" {
+                has_user_id = true;
+            }
             if col_name == "priority" {
                 has_priority = true;
             }
@@ -60,6 +65,21 @@ impl SqliteTaskRepository {
                 has_category_id = true;
             }
         }
+
+        if !has_user_id {
+            sqlx::query("ALTER TABLE tasks ADD COLUMN user_id TEXT;")
+                .execute(&self.pool)
+                .await
+                .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+        }
+
+        // Backfill user_id untuk baris data lawas agar tidak NULL
+        sqlx::query(
+            "UPDATE tasks SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApplicationError::Repository(e.to_string()))?;
 
         if !has_priority {
             sqlx::query("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'medium';")
@@ -82,9 +102,13 @@ impl SqliteTaskRepository {
                 .map_err(|e| ApplicationError::Repository(e.to_string()))?;
         }
 
-        // Unique index untuk judul task
+        // Migrasi index: hapus index global lama, buat composite unique index per user
+        let _ = sqlx::query("DROP INDEX IF EXISTS idx_tasks_title;")
+            .execute(&self.pool)
+            .await;
+
         sqlx::query(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_title ON tasks(title COLLATE NOCASE);",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_user_title ON tasks(user_id, title COLLATE NOCASE);",
         )
         .execute(&self.pool)
         .await
@@ -99,11 +123,12 @@ impl TaskRepository for SqliteTaskRepository {
     async fn save(&self, task: &Task) -> Result<(), ApplicationError> {
         sqlx::query(
             r#"
-            INSERT INTO tasks (id, title, description, status, priority, due_date, category_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO tasks (id, user_id, title, description, status, priority, due_date, category_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(task.id().to_string())
+        .bind(task.user_id().to_string())
         .bind(task.title())
         .bind(task.description())
         .bind(task.status().to_string())
@@ -115,24 +140,26 @@ impl TaskRepository for SqliteTaskRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| {
-            if e.to_string().contains("UNIQUE constraint failed: tasks.title") {
+            let err_str = e.to_string();
+            if err_str.contains("UNIQUE constraint failed") && (err_str.contains("tasks.title") || err_str.contains("idx_tasks_user_title")) {
                 ApplicationError::DuplicateTaskTitle(task.title().to_string())
             } else {
-                ApplicationError::Repository(e.to_string())
+                ApplicationError::Repository(err_str)
             }
         })?;
 
         Ok(())
     }
 
-    async fn find_by_id(&self, id: Uuid) -> Result<Option<Task>, ApplicationError> {
+    async fn find_by_id(&self, user_id: Uuid, id: Uuid) -> Result<Option<Task>, ApplicationError> {
         let row = sqlx::query(
             r#"
-            SELECT id, title, description, status, priority, due_date, category_id, created_at, updated_at
+            SELECT id, user_id, title, description, status, priority, due_date, category_id, created_at, updated_at
             FROM tasks
-            WHERE id = ?
+            WHERE user_id = ? AND id = ?
             "#,
         )
+        .bind(user_id.to_string())
         .bind(id.to_string())
         .fetch_optional(&self.pool)
         .await
@@ -144,14 +171,19 @@ impl TaskRepository for SqliteTaskRepository {
         }
     }
 
-    async fn find_by_title(&self, title: &str) -> Result<Option<Task>, ApplicationError> {
+    async fn find_by_title(
+        &self,
+        user_id: Uuid,
+        title: &str,
+    ) -> Result<Option<Task>, ApplicationError> {
         let row = sqlx::query(
             r#"
-            SELECT id, title, description, status, priority, due_date, category_id, created_at, updated_at
+            SELECT id, user_id, title, description, status, priority, due_date, category_id, created_at, updated_at
             FROM tasks
-            WHERE title = ? COLLATE NOCASE
+            WHERE user_id = ? AND title = ? COLLATE NOCASE
             "#,
         )
+        .bind(user_id.to_string())
         .bind(title.trim())
         .fetch_optional(&self.pool)
         .await
@@ -165,38 +197,35 @@ impl TaskRepository for SqliteTaskRepository {
 
     async fn find_with_filter(
         &self,
+        user_id: Uuid,
         filter: &TaskFilter,
     ) -> Result<(Vec<Task>, u64), ApplicationError> {
-        let mut where_clauses = Vec::new();
-        let mut binds: Vec<String> = Vec::new();
+        let mut where_clauses = vec!["user_id = ?".to_string()];
+        let mut binds: Vec<String> = vec![user_id.to_string()];
 
         if let Some(status) = filter.status {
-            where_clauses.push("status = ?");
+            where_clauses.push("status = ?".to_string());
             binds.push(status.to_string());
         }
 
         if let Some(priority) = filter.priority {
-            where_clauses.push("priority = ?");
+            where_clauses.push("priority = ?".to_string());
             binds.push(priority.to_string());
         }
 
         if let Some(category_id) = filter.category_id {
-            where_clauses.push("category_id = ?");
+            where_clauses.push("category_id = ?".to_string());
             binds.push(category_id.to_string());
         }
 
         if let Some(ref search) = filter.search {
-            where_clauses.push("(title LIKE ? OR description LIKE ?)");
+            where_clauses.push("(title LIKE ? OR description LIKE ?)".to_string());
             let pattern = format!("%{}%", search);
             binds.push(pattern.clone());
             binds.push(pattern);
         }
 
-        let where_sql = if where_clauses.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", where_clauses.join(" AND "))
-        };
+        let where_sql = format!("WHERE {}", where_clauses.join(" AND "));
 
         // 1. Hitung total item yang cocok
         let count_sql = format!("SELECT COUNT(*) as count FROM tasks {}", where_sql);
@@ -224,7 +253,7 @@ impl TaskRepository for SqliteTaskRepository {
 
         let select_sql = format!(
             r#"
-            SELECT id, title, description, status, priority, due_date, category_id, created_at, updated_at
+            SELECT id, user_id, title, description, status, priority, due_date, category_id, created_at, updated_at
             FROM tasks
             {}
             ORDER BY created_at DESC
@@ -258,7 +287,7 @@ impl TaskRepository for SqliteTaskRepository {
             r#"
             UPDATE tasks
             SET title = ?, description = ?, status = ?, priority = ?, due_date = ?, category_id = ?, updated_at = ?
-            WHERE id = ?
+            WHERE user_id = ? AND id = ?
             "#,
         )
         .bind(task.title())
@@ -268,14 +297,16 @@ impl TaskRepository for SqliteTaskRepository {
         .bind(task.due_date().map(|d| d.to_rfc3339()))
         .bind(task.category_id().map(|c| c.to_string()))
         .bind(task.updated_at().to_rfc3339())
+        .bind(task.user_id().to_string())
         .bind(task.id().to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| {
-            if e.to_string().contains("UNIQUE constraint failed: tasks.title") {
+            let err_str = e.to_string();
+            if err_str.contains("UNIQUE constraint failed") && (err_str.contains("tasks.title") || err_str.contains("idx_tasks_user_title")) {
                 ApplicationError::DuplicateTaskTitle(task.title().to_string())
             } else {
-                ApplicationError::Repository(e.to_string())
+                ApplicationError::Repository(err_str)
             }
         })?;
 
@@ -285,8 +316,9 @@ impl TaskRepository for SqliteTaskRepository {
         Ok(())
     }
 
-    async fn delete(&self, id: Uuid) -> Result<bool, ApplicationError> {
-        let result = sqlx::query("DELETE FROM tasks WHERE id = ?")
+    async fn delete(&self, user_id: Uuid, id: Uuid) -> Result<bool, ApplicationError> {
+        let result = sqlx::query("DELETE FROM tasks WHERE user_id = ? AND id = ?")
+            .bind(user_id.to_string())
             .bind(id.to_string())
             .execute(&self.pool)
             .await
@@ -295,12 +327,19 @@ impl TaskRepository for SqliteTaskRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn clear_category_id(&self, category_id: Uuid) -> Result<u64, ApplicationError> {
-        let result = sqlx::query("UPDATE tasks SET category_id = NULL WHERE category_id = ?")
-            .bind(category_id.to_string())
-            .execute(&self.pool)
-            .await
-            .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+    async fn clear_category_id(
+        &self,
+        user_id: Uuid,
+        category_id: Uuid,
+    ) -> Result<u64, ApplicationError> {
+        let result = sqlx::query(
+            "UPDATE tasks SET category_id = NULL WHERE user_id = ? AND category_id = ?",
+        )
+        .bind(user_id.to_string())
+        .bind(category_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApplicationError::Repository(e.to_string()))?;
 
         Ok(result.rows_affected())
     }
@@ -310,6 +349,7 @@ fn map_row_to_task(row: sqlx::sqlite::SqliteRow) -> Result<Task, ApplicationErro
     let id_str: String = row
         .try_get("id")
         .map_err(|e| ApplicationError::Repository(e.to_string()))?;
+    let user_id_str: Option<String> = row.try_get("user_id").unwrap_or(None);
     let title: String = row
         .try_get("title")
         .map_err(|e| ApplicationError::Repository(e.to_string()))?;
@@ -333,6 +373,9 @@ fn map_row_to_task(row: sqlx::sqlite::SqliteRow) -> Result<Task, ApplicationErro
 
     let id = Uuid::parse_str(&id_str)
         .map_err(|e| ApplicationError::Repository(format!("Invalid UUID in SQLite: {}", e)))?;
+    let user_id = user_id_str
+        .and_then(|u| Uuid::parse_str(&u).ok())
+        .unwrap_or_default();
     let status: TaskStatus = status_str.parse().map_err(ApplicationError::Domain)?;
     let priority: TaskPriority = priority_str.parse().map_err(ApplicationError::Domain)?;
     let due_date = if let Some(ref d_str) = due_date_str {
@@ -367,6 +410,7 @@ fn map_row_to_task(row: sqlx::sqlite::SqliteRow) -> Result<Task, ApplicationErro
 
     Ok(Task::reconstitute(
         id,
+        user_id,
         title,
         description,
         status,

@@ -23,6 +23,7 @@ cargo fmt --check
 ```
 
 ## 3. Dokumentasi Referensi
+- [**`DOCS/TODO.md`**](../../../DOCS/TODO.md): Roadmap proyek & checklist pelacak tugas otomatis.
 - [**`DOCS/API.md`**](../../../DOCS/API.md): Dokumentasi spesifikasi REST API.
 - [**`DOCS/WORKFLOW.md`**](../../../DOCS/WORKFLOW.md): Panduan alur kerja dan diagram sistem.
 - [**`DOCS/AGENT.md`**](../../../DOCS/AGENT.md): Instruksi detail agent.

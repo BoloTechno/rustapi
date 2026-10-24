@@ -22,9 +22,10 @@ impl TaskService {
         }
     }
 
-    /// Use case: Membuat task baru (dengan validasi keunikan judul)
+    /// Use case: Membuat task baru (dengan validasi keunikan judul per user)
     pub async fn create_task(
         &self,
+        user_id: Uuid,
         title: String,
         description: Option<String>,
         priority: Option<TaskPriority>,
@@ -32,18 +33,27 @@ impl TaskService {
         category_id: Option<Uuid>,
     ) -> Result<Task, ApplicationError> {
         // 1. Validasi aturan domain terlebih dahulu (empty title, max title length, dll)
-        let task = Task::new(title, description, priority, due_date, category_id)?;
+        let task = Task::new(user_id, title, description, priority, due_date, category_id)?;
 
-        // 2. Validasi keunikan judul pada level repository
-        if self.repository.find_by_title(task.title()).await?.is_some() {
+        // 2. Validasi keunikan judul pada level repository (per user)
+        if self
+            .repository
+            .find_by_title(user_id, task.title())
+            .await?
+            .is_some()
+        {
             return Err(ApplicationError::DuplicateTaskTitle(
                 task.title().to_string(),
             ));
         }
 
-        // 3. Validasi keberadaan kategori jika disertakan
+        // 3. Validasi keberadaan kategori jika disertakan (milik user yang sama)
         if let Some(cat_id) = task.category_id()
-            && self.category_repository.find_by_id(cat_id).await?.is_none()
+            && self
+                .category_repository
+                .find_by_id(user_id, cat_id)
+                .await?
+                .is_none()
         {
             return Err(ApplicationError::CategoryNotFound(cat_id));
         }
@@ -52,25 +62,28 @@ impl TaskService {
         Ok(task)
     }
 
-    /// Use case: Mengambil task berdasarkan ID
-    pub async fn get_task_by_id(&self, id: Uuid) -> Result<Task, ApplicationError> {
+    /// Use case: Mengambil task berdasarkan ID (milik user)
+    pub async fn get_task_by_id(&self, user_id: Uuid, id: Uuid) -> Result<Task, ApplicationError> {
         self.repository
-            .find_by_id(id)
+            .find_by_id(user_id, id)
             .await?
             .ok_or(ApplicationError::TaskNotFound(id))
     }
 
-    /// Use case: Mendapatkan daftar task dengan filter, pencarian, dan pagination
+    /// Use case: Mendapatkan daftar task dengan filter, pencarian, dan pagination (milik user)
     pub async fn list_tasks(
         &self,
+        user_id: Uuid,
         filter: TaskFilter,
     ) -> Result<(Vec<Task>, u64), ApplicationError> {
-        self.repository.find_with_filter(&filter).await
+        self.repository.find_with_filter(user_id, &filter).await
     }
 
     /// Use case: Update data task (judul, deskripsi, prioritas, due date, atau kategori)
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_task(
         &self,
+        user_id: Uuid,
         id: Uuid,
         title: Option<String>,
         description: Option<String>,
@@ -78,12 +91,12 @@ impl TaskService {
         due_date: Option<Option<DateTime<Utc>>>,
         category_id: Option<Option<Uuid>>,
     ) -> Result<Task, ApplicationError> {
-        let mut task = self.get_task_by_id(id).await?;
+        let mut task = self.get_task_by_id(user_id, id).await?;
 
         if let Some(new_title) = title {
             let trimmed = new_title.trim();
             if trimmed != task.title()
-                && let Some(existing) = self.repository.find_by_title(trimmed).await?
+                && let Some(existing) = self.repository.find_by_title(user_id, trimmed).await?
                 && existing.id() != id
             {
                 return Err(ApplicationError::DuplicateTaskTitle(trimmed.to_string()));
@@ -105,7 +118,11 @@ impl TaskService {
 
         if let Some(c) = category_id {
             if let Some(cat_id) = c
-                && self.category_repository.find_by_id(cat_id).await?.is_none()
+                && self
+                    .category_repository
+                    .find_by_id(user_id, cat_id)
+                    .await?
+                    .is_none()
             {
                 return Err(ApplicationError::CategoryNotFound(cat_id));
             }
@@ -117,24 +134,24 @@ impl TaskService {
     }
 
     /// Use case: Menyelesaikan task (status -> Completed)
-    pub async fn complete_task(&self, id: Uuid) -> Result<Task, ApplicationError> {
-        let mut task = self.get_task_by_id(id).await?;
+    pub async fn complete_task(&self, user_id: Uuid, id: Uuid) -> Result<Task, ApplicationError> {
+        let mut task = self.get_task_by_id(user_id, id).await?;
         task.mark_completed()?;
         self.repository.update(&task).await?;
         Ok(task)
     }
 
     /// Use case: Membuka kembali task (status -> Pending)
-    pub async fn reopen_task(&self, id: Uuid) -> Result<Task, ApplicationError> {
-        let mut task = self.get_task_by_id(id).await?;
+    pub async fn reopen_task(&self, user_id: Uuid, id: Uuid) -> Result<Task, ApplicationError> {
+        let mut task = self.get_task_by_id(user_id, id).await?;
         task.reopen()?;
         self.repository.update(&task).await?;
         Ok(task)
     }
 
     /// Use case: Menghapus task
-    pub async fn delete_task(&self, id: Uuid) -> Result<(), ApplicationError> {
-        let deleted = self.repository.delete(id).await?;
+    pub async fn delete_task(&self, user_id: Uuid, id: Uuid) -> Result<(), ApplicationError> {
+        let deleted = self.repository.delete(user_id, id).await?;
         if !deleted {
             return Err(ApplicationError::TaskNotFound(id));
         }
@@ -153,10 +170,12 @@ mod tests {
         let repo = Arc::new(InMemoryTaskRepository::new());
         let cat_repo = Arc::new(InMemoryCategoryRepository::new());
         let service = TaskService::new(repo, cat_repo);
+        let user_id = Uuid::new_v4();
 
         // 1. Create task
         let created = service
             .create_task(
+                user_id,
                 "Tulis Unit Test".into(),
                 Some("Clean Architecture".into()),
                 Some(TaskPriority::High),
@@ -172,6 +191,7 @@ mod tests {
         // 1b. Test duplicate title rejection
         let dup = service
             .create_task(
+                user_id,
                 "Tulis Unit Test".into(),
                 None,
                 Some(TaskPriority::Low),
@@ -182,20 +202,21 @@ mod tests {
         assert!(matches!(dup, Err(ApplicationError::DuplicateTaskTitle(_))));
 
         // 2. Get task
-        let fetched = service.get_task_by_id(created.id()).await.unwrap();
+        let fetched = service.get_task_by_id(user_id, created.id()).await.unwrap();
         assert_eq!(fetched.id(), created.id());
 
         // 3. Complete task
-        let completed = service.complete_task(created.id()).await.unwrap();
+        let completed = service.complete_task(user_id, created.id()).await.unwrap();
         assert_eq!(completed.status(), TaskStatus::Completed);
 
         // Reopen task
-        let reopened = service.reopen_task(created.id()).await.unwrap();
+        let reopened = service.reopen_task(user_id, created.id()).await.unwrap();
         assert_eq!(reopened.status(), TaskStatus::Pending);
 
         // 4. Update title and priority
         let updated = service
             .update_task(
+                user_id,
                 created.id(),
                 Some("Tulis Integrasi Test".into()),
                 None,
@@ -209,10 +230,10 @@ mod tests {
         assert_eq!(updated.priority(), TaskPriority::Urgent);
 
         // 5. Delete task
-        service.delete_task(created.id()).await.unwrap();
+        service.delete_task(user_id, created.id()).await.unwrap();
 
         // 6. Verify not found
-        let err = service.get_task_by_id(created.id()).await;
+        let err = service.get_task_by_id(user_id, created.id()).await;
         assert!(matches!(err, Err(ApplicationError::TaskNotFound(_))));
     }
 
@@ -221,12 +242,14 @@ mod tests {
         let repo = Arc::new(InMemoryTaskRepository::new());
         let cat_repo = Arc::new(InMemoryCategoryRepository::new());
         let service = TaskService::new(repo, cat_repo.clone());
+        let user_id = Uuid::new_v4();
 
         let fake_cat_id = Uuid::new_v4();
 
         // 1. Rejection saat create task dengan category_id yang tidak ada
         let err_create = service
             .create_task(
+                user_id,
                 "Task Validasi Kategori".into(),
                 None,
                 None,
@@ -240,11 +263,12 @@ mod tests {
         ));
 
         // 2. Berhasil create jika kategori ada
-        let category = Category::new("Testing".into(), None).unwrap();
+        let category = Category::new(user_id, "Testing".into(), None).unwrap();
         cat_repo.save(&category).await.unwrap();
 
         let task = service
             .create_task(
+                user_id,
                 "Task Validasi Kategori".into(),
                 None,
                 None,
@@ -257,7 +281,15 @@ mod tests {
 
         // 3. Rejection saat update task dengan category_id yang tidak ada
         let err_update = service
-            .update_task(task.id(), None, None, None, None, Some(Some(fake_cat_id)))
+            .update_task(
+                user_id,
+                task.id(),
+                None,
+                None,
+                None,
+                None,
+                Some(Some(fake_cat_id)),
+            )
             .await;
         assert!(matches!(
             err_update,
@@ -266,7 +298,7 @@ mod tests {
 
         // 4. Berhasil update untuk menghapus kategori (Some(None))
         let updated = service
-            .update_task(task.id(), None, None, None, None, Some(None))
+            .update_task(user_id, task.id(), None, None, None, None, Some(None))
             .await
             .unwrap();
         assert_eq!(updated.category_id(), None);

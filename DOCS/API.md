@@ -5,6 +5,7 @@ Dokumentasi lengkap endpoint API untuk layanan **rustapi**.
 - **Base URL:** `http://127.0.0.1:3000/api/v1`
 - **Format Payload:** `application/json`
 - **Encoding:** UTF-8
+- **Autentikasi:** Bearer Token JWT pada header `Authorization: Bearer <token>` untuk seluruh endpoint yang diproteksi (Tasks & Categories).
 
 ---
 
@@ -34,7 +35,7 @@ Daftar data disertai dengan metadata pagination:
 }
 ```
 
-### Respon Error (400 / 404 / 409 / 422 / 500)
+### Respon Error (400 / 401 / 404 / 409 / 422 / 500)
 ```json
 {
   "success": false,
@@ -47,10 +48,102 @@ Daftar data disertai dengan metadata pagination:
 
 ---
 
-## 2. Daftar Endpoint
+## 2. Autentikasi Pengguna & Multi-Tenancy
+
+Layanan ini menerapkan isolasi data multi-penyewa (*multi-tenancy*). Pengguna yang terautentikasi hanya dapat mengakses, mengubah, dan menghapus task serta kategori miliknya sendiri. Keunikan judul task dan nama kategori berlaku per pengguna (*user-scoped*).
+
+### A. Registrasi Pengguna Baru
+Mendaftarkan akun pengguna baru dan langsung mengembalikan JWT token.
+
+- **Method / URL:** `POST /api/v1/auth/register`
+- **Headers:** `Content-Type: application/json`
+- **Request Body:**
+  ```json
+  {
+    "email": "user@example.com",
+    "password": "mypassword123",
+    "name": "Budi Santoso"
+  }
+  ```
+  *Keterangan Atribut:*
+  - `email` *(wajib)*: Format email valid (case-insensitive & unik global).
+  - `password` *(wajib)*: Minimal 8 karakter.
+  - `name` *(opsional)*: Nama lengkap pengguna.
+- **Status Code:** `201 Created`
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "user": {
+        "id": "c1a2b3c4-d5e6-4789-8012-3456789abcde",
+        "email": "user@example.com",
+        "name": "Budi Santoso",
+        "created_at": "2026-10-24T21:00:00Z"
+      }
+    }
+  }
+  ```
+
+---
+
+### B. Login Pengguna
+Melakukan autentikasi menggunakan email dan password untuk mendapatkan JWT token.
+
+- **Method / URL:** `POST /api/v1/auth/login`
+- **Headers:** `Content-Type: application/json`
+- **Request Body:**
+  ```json
+  {
+    "email": "user@example.com",
+    "password": "mypassword123"
+  }
+  ```
+- **Status Code:** `200 OK`
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "user": {
+        "id": "c1a2b3c4-d5e6-4789-8012-3456789abcde",
+        "email": "user@example.com",
+        "name": "Budi Santoso",
+        "created_at": "2026-10-24T21:00:00Z"
+      }
+    }
+  }
+  ```
+
+---
+
+### C. Profil Pengguna yang Sedang Login
+Mengambil data profil pengguna yang terautentikasi berdasarkan Bearer token.
+
+- **Method / URL:** `GET /api/v1/auth/me`
+- **Headers:** `Authorization: Bearer <token>`
+- **Status Code:** `200 OK`
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "id": "c1a2b3c4-d5e6-4789-8012-3456789abcde",
+      "email": "user@example.com",
+      "name": "Budi Santoso",
+      "created_at": "2026-10-24T21:00:00Z"
+    }
+  }
+  ```
+
+---
+
+## 3. Daftar Endpoint Sumber Daya
 
 ### A. Health Check Server
-Pemeriksaan kesehatan dan status server.
+Pemeriksaan kesehatan dan status server (terbuka publik tanpa token).
 
 - **Method / URL:** `GET /health` atau `GET /api/v1/health`
 - **Status Code:** `200 OK`
@@ -66,10 +159,12 @@ Pemeriksaan kesehatan dan status server.
 ---
 
 ### B. Buat Task Baru
-Membuat task baru dengan status awal `pending`. Judul task (`title`) **wajib unik**.
+Membuat task baru untuk pengguna yang login dengan status awal `pending`. Judul task (`title`) **wajib unik per pengguna**.
 
 - **Method / URL:** `POST /api/v1/tasks`
-- **Headers:** `Content-Type: application/json`
+- **Headers:** 
+  - `Authorization: Bearer <token>`
+  - `Content-Type: application/json`
 - **Request Body:**
   ```json
   {

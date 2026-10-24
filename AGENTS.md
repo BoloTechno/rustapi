@@ -33,7 +33,7 @@ Setiap penambahan atau perubahan fitur wajib mengikuti urutan:
 3. `src/infrastructure/` (Implementasi konkret di `SqliteTaskRepository` & `InMemoryTaskRepository`)
 4. `src/presentation/` (DTO, Handler HTTP, Routing, Error response)
 5. `tests/` (Automated integration tests di `tests/api_tests.rs` dan `tests/sqlite_tests.rs`)
-6. `DOCS/` (Selalu perbarui `DOCS/API.md` dan `DOCS/WORKFLOW.md` secara otomatis)
+6. `DOCS/` (Selalu perbarui `DOCS/API.md`, `DOCS/WORKFLOW.md`, dan perbarui checklist otomatis di `DOCS/TODO.md`)
 
 ---
 
@@ -70,8 +70,16 @@ cargo fmt --check                         # Konsistensi formatting
 
 ---
 
-## 5. Dokumentasi Lengkap Proyek
+## 5. Pemeliharaan Checklist Proyek (`DOCS/TODO.md`)
 
+- Setiap kali menyelesaikan penambahan fitur, pembaruan skema, atau perbaikan kode, agent **wajib memberikan tanda centang `[x]` secara otomatis** pada item yang relevan di [**`DOCS/TODO.md`**](file:///home/tipol/Projects/rustapi/DOCS/TODO.md).
+- Jika ada fase baru atau sub-tugas yang disepakati bersama pengguna, cantumkan di `DOCS/TODO.md` agar progres proyek selalu terarah dan terukur.
+
+---
+
+## 6. Dokumentasi Lengkap Proyek
+
+- [**`DOCS/TODO.md`**](file:///home/tipol/Projects/rustapi/DOCS/TODO.md): Roadmap proyek & checklist pelacak tugas otomatis.
 - [**`DOCS/AGENT.md`**](file:///home/tipol/Projects/rustapi/DOCS/AGENT.md): Panduan lengkap agent & prinsip Clean Architecture.
 - [**`DOCS/API.md`**](file:///home/tipol/Projects/rustapi/DOCS/API.md): Spesifikasi lengkap seluruh endpoint, format request/response, dan contoh cURL.
 - [**`DOCS/WORKFLOW.md`**](file:///home/tipol/Projects/rustapi/DOCS/WORKFLOW.md): Panduan alur kerja vibe coding, diagram arsitektur mermaid, dan pengujian.

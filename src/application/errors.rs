@@ -20,6 +20,18 @@ pub enum ApplicationError {
     #[error("Category with name '{0}' already exists")]
     CategoryNameAlreadyExists(String),
 
+    #[error("User with email '{0}' already exists")]
+    EmailAlreadyExists(String),
+
+    #[error("Invalid email or password")]
+    InvalidCredentials,
+
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("Internal error: {0}")]
+    InternalError(String),
+
     #[error("Repository error: {0}")]
     Repository(String),
 }

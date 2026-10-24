@@ -4,25 +4,41 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use rustapi::{
-    AppState, CategoryService, InMemoryCategoryRepository, InMemoryTaskRepository, TaskService,
+    AppState, Argon2PasswordHasher, AuthService, CategoryService, InMemoryCategoryRepository,
+    InMemoryTaskRepository, InMemoryUserRepository, JwtTokenService, TaskService, TokenService,
     create_router,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 
-fn setup_test_app() -> axum::Router {
+fn setup_test_app() -> (axum::Router, String) {
     let task_repo = Arc::new(InMemoryTaskRepository::new());
     let cat_repo = Arc::new(InMemoryCategoryRepository::new());
+    let user_repo = Arc::new(InMemoryUserRepository::new());
+    let password_hasher = Arc::new(Argon2PasswordHasher::new());
+    let token_service = Arc::new(JwtTokenService::new("test_secret".to_string(), 24));
+    let auth_service = Arc::new(AuthService::new(
+        user_repo,
+        password_hasher,
+        token_service.clone(),
+    ));
     let task_service = Arc::new(TaskService::new(task_repo.clone(), cat_repo.clone()));
     let cat_service = Arc::new(CategoryService::new(cat_repo, task_repo));
-    let state = AppState::new(task_service, cat_service);
-    create_router(state)
+    let state = AppState::new(
+        task_service,
+        cat_service,
+        auth_service,
+        token_service.clone(),
+    );
+    let token = token_service.generate_token(uuid::Uuid::new_v4()).unwrap();
+    (create_router(state), token)
 }
 
 #[tokio::test]
 async fn test_category_crud_and_task_relation() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth_header = format!("Bearer {token}");
 
     // 1. Create Category: "Pekerjaan" (#007ACC)
     let res = app
@@ -31,6 +47,7 @@ async fn test_category_crud_and_task_relation() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/categories")
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -59,6 +76,7 @@ async fn test_category_crud_and_task_relation() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/categories")
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -79,6 +97,7 @@ async fn test_category_crud_and_task_relation() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -104,6 +123,7 @@ async fn test_category_crud_and_task_relation() {
             Request::builder()
                 .method("GET")
                 .uri(format!("/api/v1/tasks?category_id={}", cat_id))
+                .header("Authorization", &auth_header)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -122,6 +142,7 @@ async fn test_category_crud_and_task_relation() {
             Request::builder()
                 .method("PATCH")
                 .uri(format!("/api/v1/categories/{}", cat_id))
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -147,6 +168,7 @@ async fn test_category_crud_and_task_relation() {
             Request::builder()
                 .method("PATCH")
                 .uri(format!("/api/v1/categories/{}", cat_id))
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -175,6 +197,7 @@ async fn test_category_crud_and_task_relation() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!("/api/v1/categories/{}", cat_id))
+                .header("Authorization", &auth_header)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -189,6 +212,7 @@ async fn test_category_crud_and_task_relation() {
             Request::builder()
                 .method("GET")
                 .uri(format!("/api/v1/tasks/{}", task_id))
+                .header("Authorization", &auth_header)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -205,6 +229,7 @@ async fn test_category_crud_and_task_relation() {
             Request::builder()
                 .method("PATCH")
                 .uri(format!("/api/v1/tasks/{}", task_id))
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -225,7 +250,8 @@ async fn test_category_crud_and_task_relation() {
 
 #[tokio::test]
 async fn test_reject_nonexistent_category_id_on_create_and_update() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth_header = format!("Bearer {token}");
     let random_category_id = uuid::Uuid::new_v4();
 
     // 1. Coba create task dengan category_id acak yang tidak ada
@@ -235,6 +261,7 @@ async fn test_reject_nonexistent_category_id_on_create_and_update() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -261,6 +288,7 @@ async fn test_reject_nonexistent_category_id_on_create_and_update() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/tasks")
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -283,6 +311,7 @@ async fn test_reject_nonexistent_category_id_on_create_and_update() {
             Request::builder()
                 .method("PATCH")
                 .uri(format!("/api/v1/tasks/{}", task_id))
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({
@@ -304,7 +333,8 @@ async fn test_reject_nonexistent_category_id_on_create_and_update() {
 
 #[tokio::test]
 async fn test_category_color_too_long_rejected() {
-    let app = setup_test_app();
+    let (app, token) = setup_test_app();
+    let auth_header = format!("Bearer {token}");
 
     // 1. Rejection saat POST kategori dengan warna melebihi 16 karakter
     let res = app
@@ -313,6 +343,7 @@ async fn test_category_color_too_long_rejected() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/categories")
+                .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     json!({

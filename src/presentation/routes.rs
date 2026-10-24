@@ -9,6 +9,9 @@ use crate::presentation::state::AppState;
 pub fn create_router(state: AppState) -> Router {
     let api_v1 = Router::new()
         .route("/health", get(handlers::health_check))
+        .route("/auth/register", post(handlers::register))
+        .route("/auth/login", post(handlers::login))
+        .route("/auth/me", get(handlers::get_me))
         .route(
             "/tasks",
             post(handlers::create_task).get(handlers::list_tasks),

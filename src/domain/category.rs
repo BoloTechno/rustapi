@@ -7,6 +7,7 @@ use super::errors::DomainError;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Category {
     id: Uuid,
+    user_id: Uuid,
     name: String,
     color: Option<String>,
     created_at: DateTime<Utc>,
@@ -18,7 +19,7 @@ impl Category {
     pub const MAX_COLOR_LENGTH: usize = 16;
 
     /// Membuat entity Category baru dengan validasi domain.
-    pub fn new(name: String, color: Option<String>) -> Result<Self, DomainError> {
+    pub fn new(user_id: Uuid, name: String, color: Option<String>) -> Result<Self, DomainError> {
         let trimmed_name = name.trim();
         if trimmed_name.is_empty() {
             return Err(DomainError::EmptyCategoryName);
@@ -49,6 +50,7 @@ impl Category {
         let now = Utc::now();
         Ok(Self {
             id: Uuid::new_v4(),
+            user_id,
             name: trimmed_name.to_string(),
             color: trimmed_color,
             created_at: now,
@@ -59,6 +61,7 @@ impl Category {
     /// Rekonstitusi entity Category dari persistence layer (Database).
     pub fn reconstitute(
         id: Uuid,
+        user_id: Uuid,
         name: String,
         color: Option<String>,
         created_at: DateTime<Utc>,
@@ -66,6 +69,7 @@ impl Category {
     ) -> Self {
         Self {
             id,
+            user_id,
             name,
             color,
             created_at,
@@ -75,6 +79,10 @@ impl Category {
 
     pub fn id(&self) -> Uuid {
         self.id
+    }
+
+    pub fn user_id(&self) -> Uuid {
+        self.user_id
     }
 
     pub fn name(&self) -> &str {
@@ -139,21 +147,25 @@ mod tests {
 
     #[test]
     fn test_create_valid_category() {
-        let cat = Category::new("Pekerjaan".into(), Some("#007ACC".into())).unwrap();
+        let user_id = Uuid::new_v4();
+        let cat = Category::new(user_id, "Pekerjaan".into(), Some("#007ACC".into())).unwrap();
+        assert_eq!(cat.user_id(), user_id);
         assert_eq!(cat.name(), "Pekerjaan");
         assert_eq!(cat.color(), Some("#007ACC"));
     }
 
     #[test]
     fn test_create_category_empty_name() {
-        let res = Category::new("   ".into(), None);
+        let user_id = Uuid::new_v4();
+        let res = Category::new(user_id, "   ".into(), None);
         assert_eq!(res, Err(DomainError::EmptyCategoryName));
     }
 
     #[test]
     fn test_create_category_name_too_long() {
+        let user_id = Uuid::new_v4();
         let long_name = "A".repeat(51);
-        let res = Category::new(long_name, None);
+        let res = Category::new(user_id, long_name, None);
         assert_eq!(
             res,
             Err(DomainError::CategoryNameTooLong {
@@ -165,8 +177,9 @@ mod tests {
 
     #[test]
     fn test_create_category_color_too_long() {
+        let user_id = Uuid::new_v4();
         let long_color = "#1234567890ABCDEF1".to_string(); // 18 chars
-        let res = Category::new("Testing".into(), Some(long_color));
+        let res = Category::new(user_id, "Testing".into(), Some(long_color));
         assert!(matches!(
             res,
             Err(DomainError::CategoryColorTooLong {
@@ -178,7 +191,8 @@ mod tests {
 
     #[test]
     fn test_update_category_fields() {
-        let mut cat = Category::new("Awal".into(), None).unwrap();
+        let user_id = Uuid::new_v4();
+        let mut cat = Category::new(user_id, "Awal".into(), None).unwrap();
         cat.update_name("Baru".into()).unwrap();
         assert_eq!(cat.name(), "Baru");
 

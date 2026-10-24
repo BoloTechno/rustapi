@@ -59,7 +59,7 @@ Saat mengimplementasikan fitur atau perubahan baru, selalu terapkan urutan **Dom
 3. **Infrastructure Layer**: Implementasikan pada adapter SQLite dan In-Memory repository.
 4. **Presentation Layer**: Buat/perbarui DTO, handler HTTP, routing, dan penanganan error.
 5. **Integration Tests**: Tambahkan automated test di folder [`tests/`](file:///home/tipol/Projects/rustapi/tests).
-6. **Dokumentasi**: Perbarui dokumentasi di [`DOCS/API.md`](file:///home/tipol/Projects/rustapi/DOCS/API.md) dan [`DOCS/WORKFLOW.md`](file:///home/tipol/Projects/rustapi/DOCS/WORKFLOW.md).
+6. **Dokumentasi**: Perbarui dokumentasi di [`DOCS/API.md`](file:///home/tipol/Projects/rustapi/DOCS/API.md), [`DOCS/WORKFLOW.md`](file:///home/tipol/Projects/rustapi/DOCS/WORKFLOW.md), dan checklist tugas di [`DOCS/TODO.md`](file:///home/tipol/Projects/rustapi/DOCS/TODO.md).
 
 ---
 
@@ -117,7 +117,15 @@ cargo fmt --check
 
 ---
 
-## 6. Referensi Dokumentasi Lengkap
+## 6. Pemeliharaan Checklist Proyek (`DOCS/TODO.md`)
 
+- Setiap kali fitur, perbaikan bug, atau tugas selesai diimplementasikan dan diverifikasi, agent **wajib memberikan tanda centang `[x]` secara otomatis** pada item yang relevan di [**`DOCS/TODO.md`**](file:///home/tipol/Projects/rustapi/DOCS/TODO.md).
+- Jika ada fase baru atau sub-tugas yang disepakati bersama pengguna, cantumkan di `DOCS/TODO.md` agar progres proyek selalu terarah dan terukur.
+
+---
+
+## 7. Referensi Dokumentasi Lengkap
+
+- [**`DOCS/TODO.md`**](file:///home/tipol/Projects/rustapi/DOCS/TODO.md): Roadmap proyek & checklist pelacak tugas otomatis.
 - [**`DOCS/API.md`**](file:///home/tipol/Projects/rustapi/DOCS/API.md): Spesifikasi lengkap seluruh endpoint API, query params (`page`, `per_page`, `status`, `priority`, `search`), payload JSON, kode error semantik, dan contoh cURL.
 - [**`DOCS/WORKFLOW.md`**](file:///home/tipol/Projects/rustapi/DOCS/WORKFLOW.md): Panduan alur kerja vibe coding, diagram arsitektur mermaid, dan cara menjalankan server/database.

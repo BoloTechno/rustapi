@@ -61,6 +61,7 @@ Konfigurasi dibaca dari Environment Variables (opsional):
 
 ## 📖 Dokumentasi Lengkap
 
+- [**`DOCS/TODO.md`**](DOCS/TODO.md): Roadmap proyek & checklist pelacak tugas otomatis.
 - [**`DOCS/API.md`**](DOCS/API.md): Spesifikasi lengkap seluruh endpoint REST API, parameter query, schema request/response, dan contoh cURL.
 - [**`DOCS/WORKFLOW.md`**](DOCS/WORKFLOW.md): Panduan alur kerja vibe coding, diagram mermaid arsitektur, dan instruksi pengujian.
 - [**`DOCS/AGENT.md`**](DOCS/AGENT.md) & [**`AGENTS.md`**](AGENTS.md): Panduan dan memori agent Antigravity untuk Clean Architecture.
