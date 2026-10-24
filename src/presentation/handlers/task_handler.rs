@@ -5,8 +5,9 @@ use axum::{
 };
 use uuid::Uuid;
 
+use crate::application::ports::TaskFilter;
 use crate::presentation::dto::{
-    ApiResponse, CreateTaskRequest, TaskFilterQuery, TaskResponse, UpdateTaskRequest,
+    ApiResponse, CreateTaskRequest, PaginatedResponse, TaskQuery, TaskResponse, UpdateTaskRequest,
 };
 use crate::presentation::errors::ApiError;
 use crate::presentation::state::AppState;
@@ -18,7 +19,13 @@ pub async fn create_task(
 ) -> Result<(StatusCode, Json<ApiResponse<TaskResponse>>), ApiError> {
     let task = state
         .task_service
-        .create_task(payload.title, payload.description)
+        .create_task(
+            payload.title,
+            payload.description,
+            payload.priority,
+            payload.due_date,
+            payload.category_id,
+        )
         .await
         .map_err(ApiError)?;
 
@@ -28,19 +35,36 @@ pub async fn create_task(
     ))
 }
 
-/// GET /api/v1/tasks - Mendapatkan daftar task dengan opsi filter status (?status=pending)
+/// GET /api/v1/tasks - Mendapatkan daftar task dengan opsi filter, search, dan pagination
 pub async fn list_tasks(
     State(state): State<AppState>,
-    Query(query): Query<TaskFilterQuery>,
-) -> Result<Json<ApiResponse<Vec<TaskResponse>>>, ApiError> {
-    let tasks = state
+    Query(query): Query<TaskQuery>,
+) -> Result<Json<PaginatedResponse<TaskResponse>>, ApiError> {
+    let page = query.page.unwrap_or(1).clamp(1, 1_000_000);
+    let per_page = query.per_page.unwrap_or(10).clamp(1, 100);
+
+    let filter = TaskFilter {
+        status: query.status,
+        priority: query.priority,
+        category_id: query.category_id,
+        search: query.search.filter(|s| !s.trim().is_empty()),
+        page,
+        per_page,
+    };
+
+    let (tasks, total) = state
         .task_service
-        .list_tasks(query.status)
+        .list_tasks(filter)
         .await
         .map_err(ApiError)?;
 
     let response_data: Vec<TaskResponse> = tasks.into_iter().map(TaskResponse::from).collect();
-    Ok(Json(ApiResponse::success(response_data)))
+    Ok(Json(PaginatedResponse::new(
+        response_data,
+        page,
+        per_page,
+        total,
+    )))
 }
 
 /// GET /api/v1/tasks/:id - Mengambil detail satu task berdasarkan ID
@@ -57,15 +81,34 @@ pub async fn get_task(
     Ok(Json(ApiResponse::success(TaskResponse::from(task))))
 }
 
-/// PATCH /api/v1/tasks/:id - Memperbarui judul atau deskripsi task
+/// PATCH /api/v1/tasks/:id - Memperbarui judul, deskripsi, prioritas, atau due date task
 pub async fn update_task(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateTaskRequest>,
 ) -> Result<Json<ApiResponse<TaskResponse>>, ApiError> {
+    let due_date_update = if payload.clear_due_date == Some(true) {
+        Some(None)
+    } else {
+        payload.due_date.map(Some)
+    };
+
+    let category_id_update = if payload.clear_category_id == Some(true) {
+        Some(None)
+    } else {
+        payload.category_id.map(Some)
+    };
+
     let task = state
         .task_service
-        .update_task(id, payload.title, payload.description)
+        .update_task(
+            id,
+            payload.title,
+            payload.description,
+            payload.priority,
+            due_date_update,
+            category_id_update,
+        )
         .await
         .map_err(ApiError)?;
 

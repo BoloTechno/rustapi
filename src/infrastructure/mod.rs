@@ -1,3 +1,6 @@
 pub mod repositories;
 
-pub use repositories::{InMemoryTaskRepository, SqliteTaskRepository};
+pub use repositories::{
+    InMemoryCategoryRepository, InMemoryTaskRepository, SqliteCategoryRepository,
+    SqliteTaskRepository,
+};

@@ -10,7 +10,7 @@ Dokumentasi lengkap endpoint API untuk layanan **rustapi**.
 
 ## 1. Format Respon Standar
 
-### Respon Sukses (200 OK / 201 Created)
+### Respon Sukses Single Item (200 OK / 201 Created)
 Menggunakan envelope konsisten:
 ```json
 {
@@ -19,7 +19,22 @@ Menggunakan envelope konsisten:
 }
 ```
 
-### Respon Error (400 / 404 / 422 / 500)
+### Respon Sukses Paginated List (200 OK)
+Daftar data disertai dengan metadata pagination:
+```json
+{
+  "success": true,
+  "data": [ ... ],
+  "pagination": {
+    "page": 1,
+    "per_page": 10,
+    "total_items": 42,
+    "total_pages": 5
+  }
+}
+```
+
+### Respon Error (400 / 404 / 409 / 422 / 500)
 ```json
 {
   "success": false,
@@ -34,8 +49,24 @@ Menggunakan envelope konsisten:
 
 ## 2. Daftar Endpoint
 
-### A. Buat Task Baru
-Membuat task baru dengan status awal `pending`.
+### A. Health Check Server
+Pemeriksaan kesehatan dan status server.
+
+- **Method / URL:** `GET /health` atau `GET /api/v1/health`
+- **Status Code:** `200 OK`
+- **Response:**
+  ```json
+  {
+    "status": "ok",
+    "version": "0.1.0",
+    "timestamp": "2026-10-24T10:45:00.123456789Z"
+  }
+  ```
+
+---
+
+### B. Buat Task Baru
+Membuat task baru dengan status awal `pending`. Judul task (`title`) **wajib unik**.
 
 - **Method / URL:** `POST /api/v1/tasks`
 - **Headers:** `Content-Type: application/json`
@@ -43,10 +74,20 @@ Membuat task baru dengan status awal `pending`.
   ```json
   {
     "title": "Belajar Rust Clean Architecture",
-    "description": "Membangun REST API dengan Axum dan SQLite"
+    "description": "Membangun REST API dengan Axum dan SQLite",
+    "priority": "high",
+    "due_date": "2026-12-31T23:59:59Z",
+    "category_id": "f8a1a9e2-4567-4abc-8def-123456789abc"
   }
   ```
-  *Keterangan:* `title` wajib (1 - 120 karakter Unicode), `description` opsional.
+  *Keterangan Atribut:*
+  - `title` *(wajib)*: 1 - 120 karakter Unicode (**harus unik**, case-insensitive).
+  - `description` *(opsional)*: Teks deskripsi.
+  - `priority` *(opsional)*: `"low"`, `"medium"`, `"high"`, `"urgent"` (default: `"medium"`).
+  - `due_date` *(opsional)*: Format ISO-8601 / RFC-3339 UTC.
+    - Format standar: `YYYY-MM-DDTHH:MM:SSZ` (contoh: `"2026-12-31T23:59:59Z"`).
+    - Format lokal dengan timezone: `YYYY-MM-DDTHH:MM:SS+07:00` (contoh WIB: `"2026-12-31T17:00:00+07:00"`).
+  - `category_id` *(opsional)*: UUID dari kategori yang sudah ada. Jika UUID yang dikirim tidak ditemukan di database, request ditolak dengan `404 Not Found` (`CATEGORY_NOT_FOUND`).
 
 - **Status Code:** `201 Created`
 - **Response:**
@@ -58,20 +99,28 @@ Membuat task baru dengan status awal `pending`.
       "title": "Belajar Rust Clean Architecture",
       "description": "Membangun REST API dengan Axum dan SQLite",
       "status": "pending",
-      "created_at": "2026-10-22T08:18:07.328340601Z",
-      "updated_at": "2026-10-22T08:18:07.328340601Z"
+      "priority": "high",
+      "due_date": "2026-12-31T23:59:59Z",
+      "category_id": "f8a1a9e2-4567-4abc-8def-123456789abc",
+      "created_at": "2026-10-24T08:18:07.328340601Z",
+      "updated_at": "2026-10-24T08:18:07.328340601Z"
     }
   }
   ```
 
 ---
 
-### B. Daftar Seluruh Task
+### C. Daftar Seluruh Task (dengan Pagination, Filter, & Search)
 Mengambil daftar task yang diurutkan dari yang terbaru (`created_at` descending).
 
 - **Method / URL:** `GET /api/v1/tasks`
 - **Query Parameters (Opsional):**
-  - `status`: filter status (`pending` atau `completed`). Contoh: `?status=completed`
+  - `page`: Nomor halaman (1-indexed, default `1`). Contoh: `?page=2`
+  - `per_page`: Jumlah item per halaman (default `10`, batas maksimal `100`). Contoh: `?per_page=5`
+  - `status`: Filter status (`pending` atau `completed`). Contoh: `?status=completed`
+  - `priority`: Filter prioritas (`low`, `medium`, `high`, `urgent`). Contoh: `?priority=urgent`
+  - `category_id`: Filter berdasarkan UUID kategori. Contoh: `?category_id=f8a1a9e2-...`
+  - `search`: Pencarian kata kunci case-insensitive pada judul atau deskripsi. Contoh: `?search=Rust`
 - **Status Code:** `200 OK`
 - **Response:**
   ```json
@@ -83,16 +132,25 @@ Mengambil daftar task yang diurutkan dari yang terbaru (`created_at` descending)
         "title": "Belajar Rust Clean Architecture",
         "description": "Membangun REST API dengan Axum dan SQLite",
         "status": "pending",
-        "created_at": "2026-10-22T08:18:07.328340601Z",
-        "updated_at": "2026-10-22T08:18:07.328340601Z"
+        "priority": "high",
+        "due_date": "2026-12-31T23:59:59Z",
+        "category_id": "f8a1a9e2-4567-4abc-8def-123456789abc",
+        "created_at": "2026-10-24T08:18:07.328340601Z",
+        "updated_at": "2026-10-24T08:18:07.328340601Z"
       }
-    ]
+    ],
+    "pagination": {
+      "page": 1,
+      "per_page": 10,
+      "total_items": 1,
+      "total_pages": 1
+    }
   }
   ```
 
 ---
 
-### C. Ambil Detail Task Berdasarkan ID
+### D. Ambil Detail Task Berdasarkan ID
 - **Method / URL:** `GET /api/v1/tasks/{id}`
 - **Path Parameters:** `id` (UUID string)
 - **Status Code:** `200 OK`
@@ -105,16 +163,19 @@ Mengambil daftar task yang diurutkan dari yang terbaru (`created_at` descending)
       "title": "Belajar Rust Clean Architecture",
       "description": "Membangun REST API dengan Axum dan SQLite",
       "status": "pending",
-      "created_at": "2026-10-22T08:18:07.328340601Z",
-      "updated_at": "2026-10-22T08:18:07.328340601Z"
+      "priority": "high",
+      "due_date": "2026-12-31T23:59:59Z",
+      "category_id": "f8a1a9e2-4567-4abc-8def-123456789abc",
+      "created_at": "2026-10-24T08:18:07.328340601Z",
+      "updated_at": "2026-10-24T08:18:07.328340601Z"
     }
   }
   ```
 
 ---
 
-### D. Perbarui Judul / Deskripsi Task
-Memperbarui sebagian atribut task secara parsial.
+### E. Perbarui Task (Parsial)
+Memperbarui sebagian atribut task secara parsial. Jika judul diubah, judul baru harus unik.
 
 - **Method / URL:** `PATCH /api/v1/tasks/{id}`
 - **Path Parameters:** `id` (UUID string)
@@ -122,81 +183,114 @@ Memperbarui sebagian atribut task secara parsial.
   ```json
   {
     "title": "Judul Baru yang Diperbarui",
-    "description": "Deskripsi baru"
+    "description": "Deskripsi baru",
+    "priority": "urgent",
+    "due_date": "2027-01-01T00:00:00Z",
+    "clear_due_date": false,
+    "category_id": "f8a1a9e2-4567-4abc-8def-123456789abc",
+    "clear_category_id": false
   }
   ```
-  *(Semua field bersifat opsional. Masukkan hanya atribut yang ingin diubah).*
+  *(Semua field opsional. Set `"clear_due_date": true` untuk menghapus tenggat waktu, atau `"clear_category_id": true` untuk melepas kategori. Jika `category_id` diberikan nilai baru, ID tersebut divalidasi dan akan mengembalikan `404 Not Found` (`CATEGORY_NOT_FOUND`) jika kategori tidak ada).*
 - **Status Code:** `200 OK`
-- **Response:**
-  ```json
-  {
-    "success": true,
-    "data": {
-      "id": "a9b1a223-8173-4a6a-8ee8-dceb2dea25ef",
-      "title": "Judul Baru yang Diperbarui",
-      "description": "Deskripsi baru",
-      "status": "pending",
-      "created_at": "2026-10-22T08:18:07.328340601Z",
-      "updated_at": "2026-10-22T08:25:12.441102910Z"
-    }
-  }
-  ```
 
 ---
 
-### E. Selesaikan Task (Complete)
-Mengubah status task menjadi `completed`. Bersifat **Idempotent** (aman dipanggil berulang kali).
-
+### F. Selesaikan Task (Complete)
 - **Method / URL:** `PATCH /api/v1/tasks/{id}/complete`
-- **Path Parameters:** `id` (UUID string)
 - **Status Code:** `200 OK`
-- **Response:**
-  ```json
-  {
-    "success": true,
-    "data": {
-      "id": "a9b1a223-8173-4a6a-8ee8-dceb2dea25ef",
-      "title": "Belajar Rust Clean Architecture",
-      "description": "Membangun REST API dengan Axum dan SQLite",
-      "status": "completed",
-      "created_at": "2026-10-22T08:18:07.328340601Z",
-      "updated_at": "2026-10-22T08:30:19.248391577Z"
-    }
-  }
-  ```
 
 ---
 
-### F. Buka Kembali Task (Reopen)
-Mengembalikan status task yang sudah selesai menjadi `pending`. Bersifat **Idempotent**.
-
+### G. Buka Kembali Task (Reopen)
 - **Method / URL:** `PATCH /api/v1/tasks/{id}/reopen`
-- **Path Parameters:** `id` (UUID string)
 - **Status Code:** `200 OK`
+
+---
+
+### H. Hapus Task (Delete)
+- **Method / URL:** `DELETE /api/v1/tasks/{id}`
+- **Status Code:** `204 No Content`
+
+---
+
+### I. Buat Kategori Baru
+Membuat kategori untuk pengelompokan task.
+
+- **Method / URL:** `POST /api/v1/categories`
+- **Headers:** `Content-Type: application/json`
+- **Request Body:**
+  ```json
+  {
+    "name": "Pekerjaan",
+    "color": "#007ACC"
+  }
+  ```
+  *Keterangan:* `name` wajib unik (1 - 50 karakter), `color` opsional kode hex (maksimal 16 karakter).
+- **Status Code:** `201 Created`
 - **Response:**
   ```json
   {
     "success": true,
     "data": {
-      "id": "a9b1a223-8173-4a6a-8ee8-dceb2dea25ef",
-      "title": "Belajar Rust Clean Architecture",
-      "description": "Membangun REST API dengan Axum dan SQLite",
-      "status": "pending",
-      "created_at": "2026-10-22T08:18:07.328340601Z",
-      "updated_at": "2026-10-22T08:35:10.129384912Z"
+      "id": "f8a1a9e2-4567-4abc-8def-123456789abc",
+      "name": "Pekerjaan",
+      "color": "#007ACC",
+      "created_at": "2026-10-24T11:00:00.000Z",
+      "updated_at": "2026-10-24T11:00:00.000Z"
     }
   }
   ```
 
 ---
 
-### G. Hapus Task (Delete)
-Menghapus task dari penyimpanan permanen.
+### J. Daftar Seluruh Kategori
+- **Method / URL:** `GET /api/v1/categories`
+- **Status Code:** `200 OK`
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "id": "f8a1a9e2-4567-4abc-8def-123456789abc",
+        "name": "Pekerjaan",
+        "color": "#007ACC",
+        "created_at": "2026-10-24T11:00:00.000Z",
+        "updated_at": "2026-10-24T11:00:00.000Z"
+      }
+    ]
+  }
+  ```
 
-- **Method / URL:** `DELETE /api/v1/tasks/{id}`
-- **Path Parameters:** `id` (UUID string)
+---
+
+### K. Ambil Detail Kategori
+- **Method / URL:** `GET /api/v1/categories/{id}`
+- **Status Code:** `200 OK`
+
+---
+
+### L. Perbarui Kategori
+- **Method / URL:** `PATCH /api/v1/categories/{id}`
+- **Request Body:**
+  ```json
+  {
+    "name": "Pekerjaan Kantor",
+    "color": "#10B981",
+    "clear_color": false
+  }
+  ```
+  *(Semua field opsional. Set `"clear_color": true` untuk menghapus kode warna kategori).*
+- **Status Code:** `200 OK`
+
+---
+
+### M. Hapus Kategori
+Menghapus kategori. Task yang terhubung ke kategori ini **tidak akan dihapus**, melainkan `category_id`-nya diset ke `null`.
+
+- **Method / URL:** `DELETE /api/v1/categories/{id}`
 - **Status Code:** `204 No Content`
-- **Response Body:** *Kosong (0 byte sesuai standar resmi HTTP RFC 9110).*
 
 ---
 
@@ -206,7 +300,14 @@ Menghapus task dari penyimpanan permanen.
 | :--- | :--- | :--- |
 | `EMPTY_TITLE` | `400 Bad Request` | Judul task kosong atau hanya terdiri dari spasi. |
 | `TITLE_TOO_LONG` | `400 Bad Request` | Judul melebihi batas maksimum 120 karakter Unicode. |
+| `DUPLICATE_TITLE` | `409 Conflict` | Judul task sudah ada (duplikat). Judul task wajib unik. |
+| `INVALID_PRIORITY` | `400 Bad Request` | Nilai prioritas tidak valid (harus `low`, `medium`, `high`, atau `urgent`). |
 | `TASK_NOT_FOUND` | `404 Not Found` | ID task yang diminta tidak ditemukan di database. |
+| `EMPTY_CATEGORY_NAME` | `400 Bad Request` | Nama kategori kosong atau hanya spasi. |
+| `CATEGORY_NAME_TOO_LONG` | `400 Bad Request` | Nama kategori melebihi 50 karakter Unicode. |
+| `CATEGORY_COLOR_TOO_LONG` | `400 Bad Request` | Kode warna kategori melebihi 16 karakter Unicode. |
+| `CATEGORY_NOT_FOUND` | `404 Not Found` | ID kategori tidak ditemukan. |
+| `DUPLICATE_CATEGORY_NAME` | `409 Conflict` | Nama kategori sudah digunakan oleh kategori lain. |
 | `INVALID_STATE_TRANSITION` | `422 Unprocessable Entity` | Transisi status tidak sah menurut aturan domain. |
 | `INTERNAL_SERVER_ERROR` | `500 Internal Server Error` | Terjadi kegagalan koneksi database atau sistem internal. |
 
@@ -215,31 +316,29 @@ Menghapus task dari penyimpanan permanen.
 ## 4. Contoh Skrip Pengujian Cepat (cURL)
 
 ```bash
-# 1. Tambah task
+# 1. Buat kategori baru
+CAT_ID=$(curl -s -X POST http://127.0.0.1:3000/api/v1/categories \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Pekerjaan", "color": "#007ACC"}' | jq -r '.data.id')
+
+# 2. Buat task dengan category_id
 TASK_ID=$(curl -s -X POST http://127.0.0.1:3000/api/v1/tasks \
   -H "Content-Type: application/json" \
-  -d '{"title": "Membaca Buku Rust 🦀", "description": "Bab 1-5"}' \
-  | grep -o '"id":"[^"]*' | cut -d'"' -f4)
+  -d "{
+    \"title\": \"Implementasi Modul Kategori\",
+    \"priority\": \"high\",
+    \"category_id\": \"$CAT_ID\"
+  }" | jq -r '.data.id')
 
-echo "Created Task ID: $TASK_ID"
-
-# 2. Ambil detail task
-curl -s http://127.0.0.1:3000/api/v1/tasks/$TASK_ID
-
-# 3. Update task
-curl -s -X PATCH http://127.0.0.1:3000/api/v1/tasks/$TASK_ID \
+# 3. Uji penolakan judul kembar (harus return 409 Conflict)
+curl -i -X POST http://127.0.0.1:3000/api/v1/tasks \
   -H "Content-Type: application/json" \
-  -d '{"title": "Membaca Buku Rust 🦀 (Revisi Bab 1-7)"}'
+  -d '{"title": "Implementasi Modul Kategori"}'
 
-# 4. Selesaikan task (Complete)
-curl -s -X PATCH http://127.0.0.1:3000/api/v1/tasks/$TASK_ID/complete
+# 4. Filter task berdasarkan category_id
+curl -s "http://127.0.0.1:3000/api/v1/tasks?category_id=$CAT_ID" | jq .
 
-# 5. Filter task completed
-curl -s "http://127.0.0.1:3000/api/v1/tasks?status=completed"
-
-# 6. Buka kembali task (Reopen)
-curl -s -X PATCH http://127.0.0.1:3000/api/v1/tasks/$TASK_ID/reopen
-
-# 7. Hapus task
-curl -s -i -X DELETE http://127.0.0.1:3000/api/v1/tasks/$TASK_ID
+# 5. Hapus kategori (task tetap ada dengan category_id = null)
+curl -i -X DELETE "http://127.0.0.1:3000/api/v1/categories/$CAT_ID"
+curl -s "http://127.0.0.1:3000/api/v1/tasks/$TASK_ID" | jq .
 ```

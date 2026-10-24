@@ -35,12 +35,53 @@ impl std::str::FromStr for TaskStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPriority {
+    Low,
+    #[default]
+    Medium,
+    High,
+    Urgent,
+}
+
+impl std::fmt::Display for TaskPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskPriority::Low => write!(f, "low"),
+            TaskPriority::Medium => write!(f, "medium"),
+            TaskPriority::High => write!(f, "high"),
+            TaskPriority::Urgent => write!(f, "urgent"),
+        }
+    }
+}
+
+impl std::str::FromStr for TaskPriority {
+    type Err = DomainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "low" => Ok(TaskPriority::Low),
+            "medium" => Ok(TaskPriority::Medium),
+            "high" => Ok(TaskPriority::High),
+            "urgent" => Ok(TaskPriority::Urgent),
+            other => Err(DomainError::InvalidPriority(format!(
+                "Prioritas '{}' tidak valid",
+                other
+            ))),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     id: Uuid,
     title: String,
     description: Option<String>,
     status: TaskStatus,
+    priority: TaskPriority,
+    due_date: Option<DateTime<Utc>>,
+    category_id: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -49,7 +90,13 @@ impl Task {
     pub const MAX_TITLE_LENGTH: usize = 120;
 
     /// Buat Task baru dengan validasi domain.
-    pub fn new(title: String, description: Option<String>) -> Result<Self, DomainError> {
+    pub fn new(
+        title: String,
+        description: Option<String>,
+        priority: Option<TaskPriority>,
+        due_date: Option<DateTime<Utc>>,
+        category_id: Option<Uuid>,
+    ) -> Result<Self, DomainError> {
         let trimmed_title = title.trim();
         if trimmed_title.is_empty() {
             return Err(DomainError::EmptyTitle);
@@ -70,17 +117,24 @@ impl Task {
                 .map(|d| d.trim().to_string())
                 .filter(|d| !d.is_empty()),
             status: TaskStatus::Pending,
+            priority: priority.unwrap_or_default(),
+            due_date,
+            category_id,
             created_at: now,
             updated_at: now,
         })
     }
 
     /// Rekonstitusi entity Task dari persistence layer (Database).
+    #[allow(clippy::too_many_arguments)]
     pub fn reconstitute(
         id: Uuid,
         title: String,
         description: Option<String>,
         status: TaskStatus,
+        priority: TaskPriority,
+        due_date: Option<DateTime<Utc>>,
+        category_id: Option<Uuid>,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
     ) -> Self {
@@ -89,6 +143,9 @@ impl Task {
             title,
             description,
             status,
+            priority,
+            due_date,
+            category_id,
             created_at,
             updated_at,
         }
@@ -109,6 +166,18 @@ impl Task {
 
     pub fn status(&self) -> TaskStatus {
         self.status
+    }
+
+    pub fn priority(&self) -> TaskPriority {
+        self.priority
+    }
+
+    pub fn due_date(&self) -> Option<DateTime<Utc>> {
+        self.due_date
+    }
+
+    pub fn category_id(&self) -> Option<Uuid> {
+        self.category_id
     }
 
     pub fn created_at(&self) -> DateTime<Utc> {
@@ -145,6 +214,30 @@ impl Task {
         self.updated_at = Utc::now();
     }
 
+    /// Update prioritas task.
+    pub fn update_priority(&mut self, priority: TaskPriority) {
+        if self.priority != priority {
+            self.priority = priority;
+            self.updated_at = Utc::now();
+        }
+    }
+
+    /// Update tenggat waktu task.
+    pub fn update_due_date(&mut self, due_date: Option<DateTime<Utc>>) {
+        if self.due_date != due_date {
+            self.due_date = due_date;
+            self.updated_at = Utc::now();
+        }
+    }
+
+    /// Update kategori task.
+    pub fn update_category_id(&mut self, category_id: Option<Uuid>) {
+        if self.category_id != category_id {
+            self.category_id = category_id;
+            self.updated_at = Utc::now();
+        }
+    }
+
     /// Transisi status ke Completed (Idempotent).
     pub fn mark_completed(&mut self) -> Result<(), DomainError> {
         if self.status != TaskStatus::Completed {
@@ -170,15 +263,42 @@ mod tests {
 
     #[test]
     fn test_create_valid_task() {
-        let task = Task::new("Belajar Rust".into(), Some("Clean Architecture".into())).unwrap();
+        let task = Task::new(
+            "Belajar Rust".into(),
+            Some("Clean Architecture".into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(task.title(), "Belajar Rust");
         assert_eq!(task.description(), Some("Clean Architecture"));
         assert_eq!(task.status(), TaskStatus::Pending);
+        assert_eq!(task.priority(), TaskPriority::Medium); // Default
+        assert_eq!(task.due_date(), None);
+        assert_eq!(task.category_id(), None);
+    }
+
+    #[test]
+    fn test_create_task_with_custom_priority_and_due_date_and_category() {
+        let due = Utc::now();
+        let cat_id = Uuid::new_v4();
+        let task = Task::new(
+            "Tugas Urgent".into(),
+            None,
+            Some(TaskPriority::Urgent),
+            Some(due),
+            Some(cat_id),
+        )
+        .unwrap();
+        assert_eq!(task.priority(), TaskPriority::Urgent);
+        assert_eq!(task.due_date(), Some(due));
+        assert_eq!(task.category_id(), Some(cat_id));
     }
 
     #[test]
     fn test_create_task_with_empty_title() {
-        let res = Task::new("   ".into(), None);
+        let res = Task::new("   ".into(), None, None, None, None);
         assert_eq!(res, Err(DomainError::EmptyTitle));
     }
 
@@ -186,12 +306,12 @@ mod tests {
     fn test_create_task_with_unicode_emojis() {
         // Emojis take 4 bytes each in UTF-8. 50 emojis = 200 bytes, but only 50 characters!
         let emoji_title = "🦀".repeat(50);
-        let task = Task::new(emoji_title.clone(), None).unwrap();
+        let task = Task::new(emoji_title.clone(), None, None, None, None).unwrap();
         assert_eq!(task.title(), emoji_title);
 
         // 121 emojis should fail based on character count
         let long_emoji_title = "🦀".repeat(121);
-        let res = Task::new(long_emoji_title, None);
+        let res = Task::new(long_emoji_title, None, None, None, None);
         assert_eq!(
             res,
             Err(DomainError::TitleTooLong {
@@ -202,8 +322,23 @@ mod tests {
     }
 
     #[test]
+    fn test_priority_parsing_and_mutation() {
+        assert_eq!("low".parse::<TaskPriority>().unwrap(), TaskPriority::Low);
+        assert_eq!(
+            "urgent".parse::<TaskPriority>().unwrap(),
+            TaskPriority::Urgent
+        );
+        assert!("invalid".parse::<TaskPriority>().is_err());
+
+        let mut task = Task::new("Uji Mutasi".into(), None, None, None, None).unwrap();
+        assert_eq!(task.priority(), TaskPriority::Medium);
+        task.update_priority(TaskPriority::High);
+        assert_eq!(task.priority(), TaskPriority::High);
+    }
+
+    #[test]
     fn test_state_transitions_idempotent() {
-        let mut task = Task::new("Deploy App".into(), None).unwrap();
+        let mut task = Task::new("Deploy App".into(), None, None, None, None).unwrap();
         assert_eq!(task.status(), TaskStatus::Pending);
 
         // 1. Mark completed

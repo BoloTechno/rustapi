@@ -12,33 +12,44 @@ Proyek ini menggunakan **Clean Architecture** (Onion / Hexagonal Architecture) d
 graph TD
     subgraph Presentation ["Presentation Layer (src/presentation)"]
         Routes["HTTP Routes (Axum 0.8)"]
-        Handlers["Request Handlers"]
-        DTO["DTO Request & Response"]
+        Handlers["Task, Category & Health Handlers"]
+        DTO["DTO Request, PaginatedResponse & Query"]
     end
 
     subgraph Application ["Application Layer (src/application)"]
-        TaskService["TaskService (Orchestrator)"]
+        TaskService["TaskService"]
+        CategoryService["CategoryService"]
+        TaskFilterStruct["TaskFilter (Query Struct)"]
         TaskRepositoryPort["&lt;trait&gt; TaskRepository (Port)"]
+        CategoryRepositoryPort["&lt;trait&gt; CategoryRepository (Port)"]
     end
 
     subgraph Domain ["Domain Layer (src/domain)"]
-        TaskEntity["Task Entity"]
+        TaskEntity["Task Entity (Unique Title)"]
+        CategoryEntity["Category Entity"]
+        TaskPriorityEnum["TaskPriority Enum"]
         TaskStatusEnum["TaskStatus Enum"]
         DomainErrors["DomainError"]
     end
 
     subgraph Infrastructure ["Infrastructure Layer (src/infrastructure)"]
-        SqliteRepo["SqliteTaskRepository (Production)"]
-        InMemoryRepo["InMemoryTaskRepository (Testing)"]
-        Database[("tasks.db (SQLite)")]
+        SqliteRepo["SqliteTaskRepository & SqliteCategoryRepository"]
+        InMemoryRepo["InMemoryTaskRepository & InMemoryCategoryRepository"]
+        Database[("tasks.db (SQLite: tasks & categories)")]
     end
 
     Routes --> Handlers
     Handlers --> TaskService
+    Handlers --> CategoryService
     TaskService --> TaskEntity
+    TaskService --> TaskFilterStruct
     TaskService --> TaskRepositoryPort
+    CategoryService --> CategoryEntity
+    CategoryService --> CategoryRepositoryPort
     SqliteRepo -.->|Implements| TaskRepositoryPort
+    SqliteRepo -.->|Implements| CategoryRepositoryPort
     InMemoryRepo -.->|Implements| TaskRepositoryPort
+    InMemoryRepo -.->|Implements| CategoryRepositoryPort
     SqliteRepo --> Database
 ```
 
