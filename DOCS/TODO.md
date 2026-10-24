@@ -91,10 +91,10 @@ Dokumen ini berfungsi sebagai peta jalan (*roadmap*) dan daftar pelacak tugas (*
 
 ---
 
-### [ ] Fase 6: Production Web Middleware & Observability
-- [ ] **6.1 CORS Middleware**: Konfigurasi `tower-http::cors` agar REST API siap diakses dari browser frontend (React, Next.js, Vue, mobile).
-- [ ] **6.2 Request Tracing & Latency Logger**: Integrasi `tower-http::trace` untuk mencatat durasi eksekusi dan latency setiap request HTTP.
-- [ ] **6.3 Request Timeout Layer**: Mencegah request menggantung dengan timeout middleware (misal 30 detik).
+### [x] Fase 6: Production Web Middleware & Observability
+- [x] **6.1 CORS Middleware**: Konfigurasi `tower-http::cors` agar REST API siap diakses dari browser frontend (React, Next.js, Vue, mobile).
+- [x] **6.2 Request Tracing & Latency Logger**: Integrasi `tower-http::trace` untuk mencatat durasi eksekusi dan latency setiap request HTTP.
+- [x] **6.3 Request Timeout Layer**: Mencegah request menggantung dengan timeout middleware (misal 30 detik).
 - [x] **6.4 Graceful Shutdown**: Menangani sinyal `SIGINT` dan `SIGTERM` di `src/main.rs` agar koneksi database ditutup dengan aman saat server dihentikan.
 
 ---

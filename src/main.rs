@@ -78,7 +78,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let token_service = Arc::new(JwtTokenService::new(jwt_secret, 24));
+    let jwt_expiration_hours = std::env::var("JWT_EXPIRATION_HOURS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|&h| h > 0)
+        .unwrap_or(24);
+
+    let token_service = Arc::new(JwtTokenService::new(jwt_secret, jwt_expiration_hours));
     let password_hasher = Arc::new(Argon2PasswordHasher::new());
 
     // 5. Dependency Injection: Repositories & Services
@@ -110,9 +116,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("Server aktif dan berjalan di http://{}", addr);
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     info!("Server berhasil dimatikan dengan aman.");
 

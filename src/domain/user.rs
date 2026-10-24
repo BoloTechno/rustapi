@@ -16,6 +16,7 @@ pub struct User {
 
 impl User {
     pub const MIN_PASSWORD_LENGTH: usize = 8;
+    pub const MAX_PASSWORD_LENGTH: usize = 128;
     pub const MAX_NAME_LENGTH: usize = 100;
 
     /// Validasi format email domain
@@ -57,6 +58,12 @@ impl User {
         if count < Self::MIN_PASSWORD_LENGTH {
             return Err(DomainError::PasswordTooShort {
                 min: Self::MIN_PASSWORD_LENGTH,
+                actual: count,
+            });
+        }
+        if count > Self::MAX_PASSWORD_LENGTH {
+            return Err(DomainError::PasswordTooLong {
+                max: Self::MAX_PASSWORD_LENGTH,
                 actual: count,
             });
         }
@@ -178,6 +185,14 @@ mod tests {
             User::validate_raw_password("short"),
             Err(DomainError::PasswordTooShort { min: 8, actual: 5 })
         ));
+        assert_eq!(
+            User::validate_raw_password(&"a".repeat(129)),
+            Err(DomainError::PasswordTooLong {
+                max: 128,
+                actual: 129
+            })
+        );
+        assert!(User::validate_raw_password(&"a".repeat(128)).is_ok());
         assert!(User::validate_raw_password("validpassword123").is_ok());
     }
 

@@ -66,6 +66,11 @@ impl IntoResponse for ApiError {
                 "PASSWORD_TOO_SHORT",
                 self.0.to_string(),
             ),
+            ApplicationError::Domain(DomainError::PasswordTooLong { .. }) => (
+                StatusCode::BAD_REQUEST,
+                "PASSWORD_TOO_LONG",
+                self.0.to_string(),
+            ),
             ApplicationError::Domain(DomainError::UserNameTooLong { .. }) => (
                 StatusCode::BAD_REQUEST,
                 "USER_NAME_TOO_LONG",

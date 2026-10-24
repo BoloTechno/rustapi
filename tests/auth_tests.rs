@@ -146,6 +146,7 @@ async fn test_auth_registration_and_validation() {
 
     // 5. Name too long (> 100 chars) -> 400 Bad Request
     let res_name = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -168,6 +169,31 @@ async fn test_auth_registration_and_validation() {
     let body_name = res_name.into_body().collect().await.unwrap().to_bytes();
     let json_name: Value = serde_json::from_slice(&body_name).unwrap();
     assert_eq!(json_name["error"]["code"], "USER_NAME_TOO_LONG");
+
+    // 6. Password too long (> 128 chars) -> 400 Bad Request
+    let res_pwd_long = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/register")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "email": "validpwd@example.com",
+                        "password": "a".repeat(129),
+                        "name": "Valid Name"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res_pwd_long.status(), StatusCode::BAD_REQUEST);
+    let body_pwd_long = res_pwd_long.into_body().collect().await.unwrap().to_bytes();
+    let json_pwd_long: Value = serde_json::from_slice(&body_pwd_long).unwrap();
+    assert_eq!(json_pwd_long["error"]["code"], "PASSWORD_TOO_LONG");
 }
 
 #[tokio::test]
@@ -573,4 +599,27 @@ async fn test_auth_rate_limiting() {
         .unwrap();
 
     assert_ne!(res_other_ip.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn test_rate_limiter_eviction() {
+    let limiter = RateLimiter::new(10, std::time::Duration::from_millis(50));
+
+    // Tambahkan 110 IP berbeda
+    for i in 0..110 {
+        let ip: std::net::IpAddr = format!("10.0.0.{}", i + 1).parse().unwrap();
+        assert!(limiter.check(ip).await);
+    }
+
+    assert!(limiter.entry_count().await >= 100);
+
+    // Tunggu hingga jendela waktu kedaluwarsa (> 50ms)
+    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+
+    // Panggil check berikutnya (memicu pembersihan entri idle)
+    let new_ip: std::net::IpAddr = "10.0.1.1".parse().unwrap();
+    assert!(limiter.check(new_ip).await);
+
+    // Seluruh entri lama yang kedaluwarsa terbukti telah dieviksi
+    assert!(limiter.entry_count().await <= 5);
 }

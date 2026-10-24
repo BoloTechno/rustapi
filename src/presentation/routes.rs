@@ -45,5 +45,8 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(handlers::health_check))
         .nest("/api/v1", api_v1)
+        .layer(crate::presentation::middleware::create_timeout_layer())
+        .layer(crate::presentation::middleware::create_cors_layer())
+        .layer(crate::presentation::middleware::create_trace_layer())
         .with_state(state)
 }

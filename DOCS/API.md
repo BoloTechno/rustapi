@@ -50,7 +50,7 @@ Daftar data disertai dengan metadata pagination:
 
 ## 2. Autentikasi Pengguna & Multi-Tenancy
 
-Layanan ini menerapkan isolasi data multi-penyewa (*multi-tenancy*). Pengguna yang terautentikasi hanya dapat mengakses, mengubah, dan menghapus task serta kategori miliknya sendiri. Keunikan judul task dan nama kategori berlaku per pengguna (*user-scoped*).
+Layanan ini menerapkan isolasi data multi-penyewa (*multi-tenancy*). Pengguna yang terautentikasi hanya dapat mengakses, mengubah, dan menghapus task serta kategori miliknya sendiri. Keunikan judul task dan nama kategori berlaku per pengguna (*user-scoped*). Masa berlaku token dapat dikonfigurasi melalui environment variable `JWT_EXPIRATION_HOURS` (default: 24 jam).
 
 ### A. Registrasi Pengguna Baru
 Mendaftarkan akun pengguna baru dan langsung mengembalikan JWT token.
@@ -68,7 +68,7 @@ Mendaftarkan akun pengguna baru dan langsung mengembalikan JWT token.
   ```
   *Keterangan Atribut:*
   - `email` *(wajib)*: Format email valid (case-insensitive & unik global).
-  - `password` *(wajib)*: Minimal 8 karakter.
+  - `password` *(wajib)*: Minimal 8 karakter, maksimal 128 karakter.
   - `name` *(opsional)*: Nama lengkap pengguna (maksimal 100 karakter).
 - **Rate Limit:** Maksimal 10 request per menit per IP address. Request berlebih akan menghasilkan `429 Too Many Requests`.
 - **Status Code:** `201 Created`
@@ -408,13 +408,34 @@ Menghapus kategori. Task yang terhubung ke kategori ini **tidak akan dihapus**, 
 | `CATEGORY_NOT_FOUND` | `404 Not Found` | ID kategori tidak ditemukan. |
 | `DUPLICATE_CATEGORY_NAME` | `409 Conflict` | Nama kategori sudah digunakan oleh kategori lain. |
 | `INVALID_STATE_TRANSITION` | `422 Unprocessable Entity` | Transisi status tidak sah menurut aturan domain. |
+| `PASSWORD_TOO_LONG` | `400 Bad Request` | Password melebihi batas maksimum 128 karakter. |
 | `USER_NAME_TOO_LONG` | `400 Bad Request` | Nama pengguna melebihi batas 100 karakter. |
 | `TOO_MANY_REQUESTS` | `429 Too Many Requests` | Melebihi kuota request rate limiter (maksimal 10 request / menit pada auth). |
+| `REQUEST_TIMEOUT` | `408 Request Timeout` | Request melebihi batas waktu maksimal (default: 30 detik). |
 | `INTERNAL_SERVER_ERROR` | `500 Internal Server Error` | Terjadi kegagalan koneksi database atau sistem internal. |
 
 ---
 
-## 4. Contoh Skrip Pengujian Cepat (cURL)
+## 4. Production Web Middleware
+
+Layanan ini mengintegrasikan middleware terstandardisasi untuk browser client dan observabilitas:
+
+### A. CORS (Cross-Origin Resource Sharing)
+- **Konfigurasi Origin:** Diatur melalui environment variable `CORS_ALLOWED_ORIGINS` (contoh: `http://localhost:5173,https://myapp.com`). Default fallback di development mengizinkan `*`.
+- **Pre-flight Request:** Mendukung HTTP `OPTIONS` otomatis dengan status `200 OK` / `204 No Content`.
+- **Allowed Methods:** `GET`, `POST`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`.
+- **Allowed Headers:** `Authorization`, `Content-Type`, `Accept`, `Origin`, `X-Requested-With`.
+
+### B. Request Timeout
+- **Batas Waktu:** Default 30 detik (dapat diubah via `REQUEST_TIMEOUT_SECS`).
+- **Respon Timeout:** Jika handler membutuhkan waktu melebihi batas, middleware memutus koneksi dan mengembalikan HTTP `408 Request Timeout`.
+
+### C. Request Tracing & Latency Logger
+- Setiap request HTTP dicatat menggunakan `tracing` dengan format terstruktur: method, path URI, status code respon, dan durasi latensi dalam satuan milidetik (`ms`).
+
+---
+
+## 5. Contoh Skrip Pengujian Cepat (cURL)
 
 ```bash
 # 1. Buat kategori baru

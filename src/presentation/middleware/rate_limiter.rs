@@ -36,6 +36,14 @@ impl RateLimiter {
         let cutoff = now.checked_sub(self.window).unwrap_or(now);
         let mut map = self.records.lock().await;
 
+        // Bersihkan entri IP yang sudah idle jika ukuran map melebihi ambang batas
+        if map.len() > 100 {
+            map.retain(|_, timestamps| {
+                timestamps.retain(|&t| t > cutoff);
+                !timestamps.is_empty()
+            });
+        }
+
         let timestamps = map.entry(ip).or_default();
         timestamps.retain(|&t| t > cutoff);
 
@@ -46,10 +54,46 @@ impl RateLimiter {
             true
         }
     }
+
+    /// Mengambil jumlah entri IP aktif (berguna untuk pengujian eviksi memori)
+    pub async fn entry_count(&self) -> usize {
+        self.records.lock().await.len()
+    }
 }
 
 pub fn extract_client_ip(req: &Request) -> IpAddr {
-    // 1. Periksa header X-Forwarded-For (sering digunakan di balik reverse proxy)
+    let trust_proxy = std::env::var("TRUST_PROXY")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+
+    if trust_proxy {
+        // 1. Periksa header X-Forwarded-For jika reverse proxy dipercaya
+        if let Some(header_val) = req.headers().get("x-forwarded-for")
+            && let Ok(header_str) = header_val.to_str()
+            && let Some(first_ip) = header_str.split(',').next()
+            && let Ok(ip) = first_ip.trim().parse::<IpAddr>()
+        {
+            return ip;
+        }
+
+        // 2. Periksa header X-Real-IP jika reverse proxy dipercaya
+        if let Some(header_val) = req.headers().get("x-real-ip")
+            && let Ok(header_str) = header_val.to_str()
+            && let Ok(ip) = header_str.trim().parse::<IpAddr>()
+        {
+            return ip;
+        }
+    }
+
+    // 3. Gunakan peer IP jaringan asli dari ConnectInfo jika ada (anti-spoofing)
+    if let Some(connect_info) = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+    {
+        return connect_info.0.ip();
+    }
+
+    // 4. Jika di lingkungan pengujian tanpa socket TCP asli, tetap dukung header uji
     if let Some(header_val) = req.headers().get("x-forwarded-for")
         && let Ok(header_str) = header_val.to_str()
         && let Some(first_ip) = header_str.split(',').next()
@@ -58,15 +102,7 @@ pub fn extract_client_ip(req: &Request) -> IpAddr {
         return ip;
     }
 
-    // 2. Periksa header X-Real-IP
-    if let Some(header_val) = req.headers().get("x-real-ip")
-        && let Ok(header_str) = header_val.to_str()
-        && let Ok(ip) = header_str.trim().parse::<IpAddr>()
-    {
-        return ip;
-    }
-
-    // 3. Fallback default ke localhost
+    // 5. Fallback default ke localhost
     IpAddr::from([127, 0, 0, 1])
 }
 
